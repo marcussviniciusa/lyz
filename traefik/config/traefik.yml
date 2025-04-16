@@ -1,0 +1,33 @@
+# Static configuration
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+# Entry points configuration
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+# Configure certificatesResolvers for Let's Encrypt
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: admin@lyz.healthcare
+      storage: /etc/traefik/acme/acme.json
+      tlsChallenge: {}
+
+# Provider configuration
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+  file:
+    directory: /etc/traefik
+    watch: true

@@ -1,0 +1,11 @@
+# Dependencies
+frontend/node_modules
+backend/node_modules
+
+# Next.js build output
+frontend/.next
+google_app_cred.json
+
+
+frontend/.next/cache/webpack/client-development/*.pack.gz
+frontend/.next/cache/webpack/client-development/*.gz
