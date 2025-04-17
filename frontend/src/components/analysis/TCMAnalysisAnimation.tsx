@@ -31,9 +31,26 @@ const TCMAnalysisAnimation: React.FC<TCMAnalysisAnimationProps> = ({
   const [analysisComplete, setAnalysisComplete] = useState<boolean>(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
 
+  // Carrega resultados da análise existentes dos dados do plano TCM
+  useEffect(() => {
+    // Se não está analisando, mas tcmData já contém dados de análise, mostrar como concluído
+    if (tcmData?.analyzed_data && !isAnalyzing && !analysisComplete) {
+      console.log('Exibindo resultados de análise TCM existentes:', tcmData.analyzed_data);
+      setAnalysisResults(tcmData.analyzed_data);
+      setAnalysisComplete(true);
+      
+      // Marcar todos os passos como concluídos
+      setAnalysisSteps(prev => prev.map(step => ({ ...step, status: 'completed' })));
+      
+      // Notifica o componente pai que a análise já está concluída
+      // Isso é importante para manter a consistência do estado
+      onAnalysisComplete(tcmData.analyzed_data);
+    }
+  }, [tcmData]);
+  
   // Executa a análise quando isAnalyzing muda para true
   useEffect(() => {
-    if (isAnalyzing && currentStepIndex < 0) {
+    if (isAnalyzing && currentStepIndex < 0 && !analysisComplete) {
       runAnalysis();
     }
   }, [isAnalyzing]);
