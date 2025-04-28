@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiShare2, FiMail, FiDownload, FiLink, FiCopy, FiCheck } from 'react-icons/fi';
+import { FiShare2, FiLink, FiCopy, FiCheck } from 'react-icons/fi';
 import { planAPI } from '../../lib/api';
 
 interface ShareOptionsProps {
@@ -9,85 +9,14 @@ interface ShareOptionsProps {
 
 const ShareOptions: React.FC<ShareOptionsProps> = ({ planId, patientName }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'export' | 'email' | 'link'>('export');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
-  // Estado para opções de exportação
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'docx' | 'html'>('pdf');
-  
-  // Estado para compartilhar por e-mail
-  const [emailData, setEmailData] = useState({
-    recipientEmail: '',
-    recipientName: '',
-    senderName: '',
-    customMessage: ''
-  });
   
   // Estado para compartilhar por link
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [expirationHours, setExpirationHours] = useState(72);
   const [copied, setCopied] = useState(false);
-  
-  // Manipuladores
-  const handleExportPlan = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      setSuccess(null);
-      
-      const response = await planAPI.exportPlan(planId, exportFormat);
-      
-      if (response.data && response.data.url) {
-        // Abrir URL em nova aba
-        window.open(response.data.url, '_blank');
-        setSuccess(`Plano exportado com sucesso em formato ${exportFormat.toUpperCase()}`);
-      } else {
-        setError('Não foi possível gerar o arquivo para exportação');
-      }
-    } catch (err: any) {
-      console.error('Error exporting plan:', err);
-      setError(`Erro ao exportar plano: ${err.message || 'Tente novamente'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  const handleShareViaEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!emailData.recipientEmail) {
-      setError('O e-mail do destinatário é obrigatório');
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      setSuccess(null);
-      
-      const response = await planAPI.sharePlanViaEmail(planId, emailData);
-      
-      if (response.data && response.data.success) {
-        setSuccess('Plano compartilhado por e-mail com sucesso!');
-        // Limpar campos do formulário
-        setEmailData({
-          recipientEmail: '',
-          recipientName: '',
-          senderName: '',
-          customMessage: ''
-        });
-      } else {
-        setError(response.data?.message || 'Erro ao compartilhar plano por e-mail');
-      }
-    } catch (err: any) {
-      console.error('Error sharing plan via email:', err);
-      setError(`Erro ao compartilhar por e-mail: ${err.message || 'Tente novamente'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
   
   const handleGenerateShareLink = async () => {
     try {
@@ -126,27 +55,20 @@ const ShareOptions: React.FC<ShareOptionsProps> = ({ planId, patientName }) => {
     }
   };
   
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    if (name === 'exportFormat') {
-      setExportFormat(value as 'pdf' | 'docx' | 'html');
-    } else if (name === 'expirationHours') {
+    if (name === 'expirationHours') {
       setExpirationHours(Number(value));
-    } else {
-      setEmailData(prev => ({
-        ...prev,
-        [name]: value
-      }));
     }
   };
-
+  
   return (
-    <div className="relative">
+    <div className="relative inline-block">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
-        aria-label="Opções de compartilhamento"
+        className="flex items-center space-x-1 bg-white py-2 px-4 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+        aria-label="Compartilhar Plano"
       >
         <FiShare2 className="text-lg" />
         <span>Compartilhar</span>
@@ -154,35 +76,9 @@ const ShareOptions: React.FC<ShareOptionsProps> = ({ planId, patientName }) => {
       
       {isOpen && (
         <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-lg z-50 border border-gray-200 overflow-hidden">
-          {/* Abas */}
-          <div className="flex border-b border-gray-200">
-            <button
-              className={`flex-1 py-3 px-4 text-sm font-medium ${activeTab === 'export' ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600' : 'text-gray-600 hover:bg-gray-50'}`}
-              onClick={() => setActiveTab('export')}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <FiDownload />
-                <span>Exportar</span>
-              </div>
-            </button>
-            <button
-              className={`flex-1 py-3 px-4 text-sm font-medium ${activeTab === 'email' ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600' : 'text-gray-600 hover:bg-gray-50'}`}
-              onClick={() => setActiveTab('email')}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <FiMail />
-                <span>E-mail</span>
-              </div>
-            </button>
-            <button
-              className={`flex-1 py-3 px-4 text-sm font-medium ${activeTab === 'link' ? 'bg-primary-50 text-primary-600 border-b-2 border-primary-600' : 'text-gray-600 hover:bg-gray-50'}`}
-              onClick={() => setActiveTab('link')}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <FiLink />
-                <span>Link</span>
-              </div>
-            </button>
+          <div className="p-4 font-medium text-primary-600 border-b border-gray-200 flex items-center">
+            <FiLink className="mr-2" />
+            Compartilhar por Link
           </div>
           
           {/* Conteúdo */}
@@ -199,159 +95,58 @@ const ShareOptions: React.FC<ShareOptionsProps> = ({ planId, patientName }) => {
               </div>
             )}
             
-            {/* Opções de Exportação */}
-            {activeTab === 'export' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Formato do Arquivo
-                  </label>
-                  <select
-                    name="exportFormat"
-                    value={exportFormat}
-                    onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="pdf">PDF (Documento)</option>
-                    <option value="docx">DOCX (Word)</option>
-                    <option value="html">HTML (Página Web)</option>
-                  </select>
-                </div>
-                
+            {/* Compartilhar por Link */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tempo de Expiração
+                </label>
+                <select
+                  name="expirationHours"
+                  value={expirationHours}
+                  onChange={handleInputChange}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value={24}>24 horas (1 dia)</option>
+                  <option value={72}>72 horas (3 dias)</option>
+                  <option value={168}>168 horas (7 dias)</option>
+                </select>
+              </div>
+              
+              {!shareLink ? (
                 <button
-                  onClick={handleExportPlan}
+                  onClick={handleGenerateShareLink}
                   disabled={isLoading}
                   className="w-full py-2 px-4 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? 'Processando...' : `Exportar como ${exportFormat.toUpperCase()}`}
+                  {isLoading ? 'Gerando...' : 'Gerar Link de Compartilhamento'}
                 </button>
-              </div>
-            )}
-            
-            {/* Compartilhar por E-mail */}
-            {activeTab === 'email' && (
-              <form onSubmit={handleShareViaEmail} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    E-mail do Destinatário *
-                  </label>
-                  <input
-                    type="email"
-                    name="recipientEmail"
-                    value={emailData.recipientEmail}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="email@exemplo.com"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome do Destinatário
-                  </label>
-                  <input
-                    type="text"
-                    name="recipientName"
-                    value={emailData.recipientName}
-                    onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="Nome da pessoa que receberá o plano"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Seu Nome
-                  </label>
-                  <input
-                    type="text"
-                    name="senderName"
-                    value={emailData.senderName}
-                    onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="Seu nome como remetente"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mensagem Personalizada
-                  </label>
-                  <textarea
-                    name="customMessage"
-                    value={emailData.customMessage}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="Mensagem adicional para incluir no e-mail"
-                  />
-                </div>
-                
-                <button
-                  type="submit"
-                  disabled={isLoading || !emailData.recipientEmail}
-                  className="w-full py-2 px-4 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? 'Enviando...' : 'Enviar por E-mail'}
-                </button>
-              </form>
-            )}
-            
-            {/* Compartilhar por Link */}
-            {activeTab === 'link' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tempo de Expiração
-                  </label>
-                  <select
-                    name="expirationHours"
-                    value={expirationHours}
-                    onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value={24}>24 horas (1 dia)</option>
-                    <option value={72}>72 horas (3 dias)</option>
-                    <option value={168}>168 horas (7 dias)</option>
-                  </select>
-                </div>
-                
-                {!shareLink ? (
-                  <button
-                    onClick={handleGenerateShareLink}
-                    disabled={isLoading}
-                    className="w-full py-2 px-4 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? 'Gerando...' : 'Gerar Link de Compartilhamento'}
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex">
-                      <input
-                        type="text"
-                        readOnly
-                        value={shareLink}
-                        className="flex-1 border border-gray-300 rounded-l-md px-3 py-2 bg-gray-50"
-                      />
-                      <button
-                        onClick={handleCopyLink}
-                        className="px-3 py-2 bg-gray-200 rounded-r-md hover:bg-gray-300 transition-colors flex items-center justify-center"
-                        title={copied ? "Copiado!" : "Copiar link"}
-                      >
-                        {copied ? <FiCheck className="text-green-600" /> : <FiCopy />}
-                      </button>
-                    </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex">
+                    <input
+                      type="text"
+                      readOnly
+                      value={shareLink}
+                      className="flex-1 border border-gray-300 rounded-l-md px-3 py-2 bg-gray-50"
+                    />
                     <button
-                      onClick={() => setShareLink(null)}
-                      className="text-sm text-primary-600 hover:underline"
+                      onClick={handleCopyLink}
+                      className="px-3 py-2 bg-gray-200 rounded-r-md hover:bg-gray-300 transition-colors flex items-center justify-center"
+                      title={copied ? "Copiado!" : "Copiar link"}
                     >
-                      Gerar novo link
+                      {copied ? <FiCheck className="text-green-600" /> : <FiCopy />}
                     </button>
                   </div>
-                )}
-              </div>
-            )}
+                  <button
+                    onClick={() => setShareLink(null)}
+                    className="text-sm text-primary-600 hover:underline"
+                  >
+                    Gerar novo link
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           
           {/* Rodapé */}
