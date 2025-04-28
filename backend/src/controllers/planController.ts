@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { PatientPlan, User } from '../models';
 import { generateAIResponse } from '../services/ai/openaiService';
-import { exportPlanAsPDF, exportPlanAsDOCX } from '../services/export/exportService';
+import { exportPlanAsPDF, exportPlanAsDOCX, exportPlanAsHTML, sharePlanViaEmail as emailService } from '../services/export/exportService';
 import { minioClient } from '../config/minio';
 import pdfParse from 'pdf-parse';
 
@@ -771,57 +771,7 @@ export const generateFinalPlan = async (req: Request, res: Response) => {
   }
 };
 
-// Export plan
-export const exportPlan = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { format } = req.query;
-  const userId = req.user.id;
-  
-  try {
-    // Find plan
-    const plan = await PatientPlan.findByPk(id);
-    
-    if (!plan) {
-      return res.status(404).json({ message: 'Plan not found' });
-    }
-    
-    // Check ownership
-    if (String(plan.user_id) !== userId && req.user.role !== 'superadmin') {
-      return res.status(403).json({ message: 'Not authorized to export this plan' });
-    }
-    
-    // Check if plan has been generated
-    if (!plan.final_plan) {
-      return res.status(400).json({ message: 'Plan has not been generated yet' });
-    }
-    
-    // Export plan in requested format
-    let exportResult;
-    
-    if (format === 'docx') {
-      exportResult = await exportPlanAsDOCX(plan.id);
-    } else {
-      // Default to PDF
-      exportResult = await exportPlanAsPDF(plan.id);
-    }
-    
-    if (!exportResult.success) {
-      return res.status(500).json({ 
-        message: 'Failed to export plan',
-        error: exportResult.message
-      });
-    }
-    
-    return res.status(200).json({
-      message: 'Plan exported successfully',
-      download_url: exportResult.url,
-      file_name: exportResult.fileName
-    });
-  } catch (error) {
-    console.error('Error exporting plan:', error);
-    return res.status(500).json({ message: 'Internal server error' });
-  }
-};
+
 
 // Get all plans for current company
 export const getUserPlans = async (req: Request, res: Response) => {
@@ -924,6 +874,97 @@ export const updateFinalPlan = async (req: Request, res: Response) => {
   }
 };
 
+// Share plan via email
+export const sharePlanViaEmail = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { recipientEmail, recipientName, senderName, customMessage } = req.body;
+  const userId = req.user.id;
+  const companyId = req.user.company_id;
+  const userRole = req.user.role;
+  
+  // Validate recipient email
+  if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+    return res.status(400).json({ message: 'A valid recipient email is required' });
+  }
+  
+  try {
+    // Find plan
+    const plan = await PatientPlan.findByPk(id);
+    
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+    
+    // Check permission (same company or superadmin)
+    if (String(plan.company_id) !== String(companyId) && userRole !== 'superadmin') {
+      return res.status(403).json({ message: 'Not authorized to share this plan' });
+    }
+    
+    // Share plan via email using the email service
+    const result = await emailService(
+      Number(id),
+      recipientEmail,
+      recipientName || '',
+      senderName || '',
+      customMessage || ''
+    );
+    
+    return res.status(result.success ? 200 : 500).json(result);
+  } catch (error) {
+    console.error('Error sharing plan via email:', error);
+    return res.status(500).json({ 
+      message: 'Failed to share plan via email', 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Generate share link
+export const generateShareLink = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { expirationHours = 72 } = req.body; // Default to 72 hours (3 days)
+  const userId = req.user.id;
+  const companyId = req.user.company_id;
+  const userRole = req.user.role;
+  
+  try {
+    // Find plan
+    const plan = await PatientPlan.findByPk(id);
+    
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+    
+    // Check permission (same company or superadmin)
+    if (String(plan.company_id) !== String(companyId) && userRole !== 'superadmin') {
+      return res.status(403).json({ message: 'Not authorized to share this plan' });
+    }
+    
+    // Calculate expiration time (in seconds)
+    const expirationSeconds = Math.min(Math.max(1, expirationHours), 168) * 60 * 60; // Limit between 1 hour and 7 days
+    
+    // Generate HTML for sharing
+    const result = await exportPlanAsHTML(Number(id));
+    
+    if (!result.success) {
+      throw new Error('Failed to generate shareable HTML');
+    }
+    
+    return res.status(200).json({
+      success: true,
+      shareUrl: result.url,
+      expiresIn: expirationSeconds,
+      message: 'Share link generated successfully'
+    });
+  } catch (error) {
+    console.error('Error generating share link:', error);
+    return res.status(500).json({ 
+      message: 'Failed to generate share link', 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
 // Delete plan
 export const deletePlan = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -949,7 +990,58 @@ export const deletePlan = async (req: Request, res: Response) => {
     
     return res.status(200).json({ message: 'Plano excluído com sucesso' });
   } catch (error) {
-    console.error('Erro ao excluir plano:', error);
-    return res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error deleting plan:', error);
+    return res.status(500).json({ 
+      message: 'Internal server error', 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Export plan
+export const exportPlan = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { format = 'pdf' } = req.query;
+  const userId = req.user.id;
+  const companyId = req.user.company_id;
+  const userRole = req.user.role;
+  
+  try {
+    // Find plan
+    const plan = await PatientPlan.findByPk(id);
+    
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+    
+    // Check permission (same company or superadmin)
+    if (String(plan.company_id) !== String(companyId) && userRole !== 'superadmin') {
+      return res.status(403).json({ message: 'Not authorized to export this plan' });
+    }
+    
+    // Export plan based on format
+    let result;
+    
+    switch(format) {
+      case 'pdf':
+        result = await exportPlanAsPDF(Number(id));
+        break;
+      case 'docx':
+        result = await exportPlanAsDOCX(Number(id));
+        break;
+      case 'html':
+        result = await exportPlanAsHTML(Number(id));
+        break;
+      default:
+        return res.status(400).json({ message: 'Unsupported format' });
+    }
+    
+    return res.status(result.success ? 200 : 500).json(result);
+  } catch (error) {
+    console.error('Error exporting plan:', error);
+    return res.status(500).json({ 
+      message: 'Failed to export plan', 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };

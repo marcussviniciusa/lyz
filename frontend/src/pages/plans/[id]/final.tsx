@@ -5,7 +5,8 @@ import Layout from '../../../components/Layout';
 import { useAuth } from '../../../contexts/AuthContext';
 import { planAPI } from '../../../lib/api';
 import FinalPlanDisplay, { FinalPlanType } from '../../../components/plans/FinalPlanDisplay';
-import { FiTrash2 } from 'react-icons/fi';
+import ShareOptions from '../../../components/plans/ShareOptions';
+import { FiTrash2, FiEdit3 } from 'react-icons/fi';
 
 type FinalPlan = {
   diagnosis: string;
@@ -418,9 +419,9 @@ const FinalPlanPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setEditMode(true)}
-                    className="btn-outline"
+                    className="btn-outline flex items-center"
                   >
-                    Editar Plano
+                    <FiEdit3 className="mr-1" /> Editar Plano
                   </button>
                 )}
                 
@@ -432,6 +433,10 @@ const FinalPlanPage: React.FC = () => {
                 >
                   {generating ? 'Gerando...' : 'Gerar Plano com IA'}
                 </button>
+                
+                {plan?.final_plan && !editMode && (
+                  <ShareOptions planId={id as string} patientName={plan.patient_data?.name || 'Paciente'} />
+                )}
                 
                 <button
                   type="button"

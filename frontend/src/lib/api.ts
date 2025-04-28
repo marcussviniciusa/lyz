@@ -186,6 +186,17 @@ export const planAPI = {
   generatePlan: (id: string) => api.post(`/plans/${id}/generate`),
   exportPlan: (id: string, format = 'pdf') => 
     api.get(`/plans/${id}/export?format=${format}`),
+    
+  // Funções de compartilhamento
+  sharePlanViaEmail: (id: string, data: { 
+    recipientEmail: string, 
+    recipientName?: string, 
+    senderName?: string, 
+    customMessage?: string 
+  }) => api.post(`/plans/${id}/share/email`, data),
+  
+  generateShareLink: (id: string, expirationHours: number = 72) => 
+    api.post(`/plans/${id}/share/link`, { expirationHours }),
   getUserPlans: () => api.get('/plans'),
   getPlanById: (id: string) => api.get(`/plans/${id}`),
   deletePlan: (id: string) => api.delete(`/plans/${id}`),
