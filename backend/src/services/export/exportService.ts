@@ -44,22 +44,25 @@ const generatePlanHTML = (plan: any): string => {
         <meta charset="UTF-8">
         <title>Plano Personalizado - Lyz</title>
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; }
-          h1 { color: #6a1b9a; margin-top: 0; }
-          h2 { color: #9c27b0; border-bottom: 1px solid #e0e0e0; padding-bottom: 10px; }
-          h3 { color: #ab47bc; margin-top: 25px; }
-          p { margin: 10px 0; line-height: 1.8; }
-          ul, ol { margin: 15px 0; padding-left: 25px; }
-          li { margin-bottom: 8px; }
-          .header { text-align: center; margin-bottom: 30px; padding: 20px; background-color: #f9f4fc; border-radius: 8px; }
-          .section { margin-bottom: 40px; }
-          .subsection { margin-bottom: 30px; }
-          .patient-info { background-color: #f3e5f5; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-          .recommendations { margin-left: 0; background-color: #fff; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-          .footer { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.8em; color: #9e9e9e; }
-          .phase { background-color: #faf3fb; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          body { font-family: Arial, sans-serif; line-height: 1.4; color: #333; margin: 0; padding: 20px; }
+          h1 { color: #6a1b9a; margin-top: 0; margin-bottom: 15px; }
+          h2 { color: #9c27b0; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; margin-top: 25px; margin-bottom: 15px; }
+          h3 { color: #ab47bc; margin-top: 20px; margin-bottom: 12px; }
+          h4 { color: #7b1fa2; margin-top: 15px; margin-bottom: 8px; }
+          p { margin: 8px 0; line-height: 1.5; }
+          ul, ol { margin: 10px 0; padding-left: 25px; }
+          li { margin-bottom: 6px; }
+          .header { text-align: center; margin-bottom: 25px; padding: 15px; background-color: #f9f4fc; border-radius: 8px; }
+          .section { margin-bottom: 30px; }
+          .subsection { margin-bottom: 20px; }
+          .patient-info { background-color: #f3e5f5; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 25px; }
+          .recommendations { margin-left: 0; background-color: #fff; padding: 12px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          .recommendations h4 { margin-top: 12px; }
+          .recommendations p { margin: 6px 0; }
+          .footer { text-align: center; margin-top: 40px; padding-top: 15px; border-top: 1px solid #eee; font-size: 0.8em; color: #9e9e9e; }
+          .phase { background-color: #faf3fb; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
           .page-break { page-break-after: always; }
-          strong { color: #333; }
+          strong { color: #333; font-weight: 600; }
         </style>
       </head>
       <body>
@@ -70,11 +73,13 @@ const generatePlanHTML = (plan: any): string => {
         </div>
         
         <div class="section patient-info">
-          <h2>Informações do Paciente</h2>
-          <p><strong>Nome:</strong> ${patientData.name || 'Não informado'}</p>
-          <p><strong>Idade:</strong> ${patientData.age || 'Não informada'}</p>
-          <p><strong>Data de Nascimento:</strong> ${patientData.birthdate || 'Não informada'}</p>
-          <p><strong>Gênero:</strong> ${patientData.gender || 'Não informado'}</p>
+          <h2 style="margin-top: 0; margin-bottom: 12px;">Informações do Paciente</h2>
+          <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+            <div style="flex: 1; min-width: 200px;"><strong>Nome:</strong> ${patientData.name || 'Não informado'}</div>
+            <div style="min-width: 100px;"><strong>Idade:</strong> ${patientData.age || 'Não informada'}</div>
+            ${(patientData.birthdate || patientData.birth_date || patientData.birthday || patientData.dob) ? `<div style="min-width: 200px;"><strong>Data de Nascimento:</strong> ${patientData.birthdate || patientData.birth_date || patientData.birthday || patientData.dob}</div>` : ''}
+            ${(patientData.gender || patientData.sex || patientData.female || patientData.male) ? `<div style="min-width: 120px;"><strong>Gênero:</strong> ${patientData.gender || patientData.sex || (patientData.female ? 'Feminino' : patientData.male ? 'Masculino' : '')}</div>` : ''}
+          </div>
         </div>
         
         <div class="section">
@@ -146,33 +151,73 @@ const generatePlanHTML = (plan: any): string => {
     }
 
     // Adicionar recomendações nutricionais se disponíveis
-    if (finalPlan.dietary_recommendations) {
-      let dietaryContent = '';
-      
-      // Verificar se o conteúdo é um objeto e formatá-lo adequadamente
-      if (typeof finalPlan.dietary_recommendations === 'object') {
-        try {
-          if (Array.isArray(finalPlan.dietary_recommendations)) {
-            dietaryContent = '<ul>'
-              + finalPlan.dietary_recommendations.map(item => `<li>${item}</li>`).join('')
-              + '</ul>';
-          } else {
-            dietaryContent = Object.entries(finalPlan.dietary_recommendations)
-              .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
-              .join('');
-          }
-        } catch (e) {
-          dietaryContent = finalPlan.dietary_recommendations?.toString() || 'Não informado';
-        }
-      } else {
-        dietaryContent = finalPlan.dietary_recommendations;
-      }
+    if (finalPlan.nutritional_recommendations || finalPlan.dietary_recommendations) {
+      const nutritionalRecs = finalPlan.nutritional_recommendations || finalPlan.dietary_recommendations || {};
       
       html += `
         <div class="subsection">
           <h3>Recomendações Nutricionais</h3>
           <div class="recommendations">
-            ${dietaryContent}
+      `;
+      
+      // Alimentos a Incluir
+      if (nutritionalRecs.foods_to_include) {
+        html += `
+          <h4>Alimentos a Incluir</h4>
+          <p>${nutritionalRecs.foods_to_include}</p>
+        `;
+      }
+      
+      // Alimentos a Evitar
+      if (nutritionalRecs.foods_to_avoid) {
+        html += `
+          <h4>Alimentos a Evitar</h4>
+          <p>${nutritionalRecs.foods_to_avoid}</p>
+        `;
+      }
+      
+      // Horários das Refeições
+      if (nutritionalRecs.meal_timing) {
+        html += `
+          <h4>Horários das Refeições</h4>
+          <p>${nutritionalRecs.meal_timing}</p>
+        `;
+      }
+      
+      // Suplementação
+      if (nutritionalRecs.supplements) {
+        html += `
+          <h4>Suplementação</h4>
+          <p>${nutritionalRecs.supplements}</p>
+        `;
+      }
+      
+      // Caso seja um formato antigo ou diferente
+      if (typeof nutritionalRecs === 'string' || !Object.keys(nutritionalRecs).some(k => ['foods_to_include', 'foods_to_avoid', 'meal_timing', 'supplements'].includes(k))) {
+        let dietaryContent = '';
+        
+        if (typeof nutritionalRecs === 'object') {
+          try {
+            if (Array.isArray(nutritionalRecs)) {
+              dietaryContent = '<ul>'
+                + nutritionalRecs.map(item => `<li>${item}</li>`).join('')
+                + '</ul>';
+            } else {
+              dietaryContent = Object.entries(nutritionalRecs)
+                .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
+                .join('');
+            }
+          } catch (e) {
+            dietaryContent = String(nutritionalRecs) || 'Não informado';
+          }
+        } else {
+          dietaryContent = String(nutritionalRecs);
+        }
+        
+        html += dietaryContent;
+      }
+      
+      html += `
           </div>
         </div>
       `;
@@ -180,18 +225,52 @@ const generatePlanHTML = (plan: any): string => {
 
     // Adicionar recomendações de estilo de vida se disponíveis
     if (finalPlan.lifestyle_recommendations) {
-      let lifestyleContent = '';
+      const recommendations = finalPlan.lifestyle_recommendations;
       
-      // Verificar se o conteúdo é um objeto e formatá-lo adequadamente
-      if (typeof finalPlan.lifestyle_recommendations === 'object') {
-        try {
-          const recObj = finalPlan.lifestyle_recommendations;
+      html += `
+        <div class="subsection">
+          <h3>Recomendações de Estilo de Vida</h3>
+          <div class="recommendations">
+      `;
+      
+      // Exercícios Físicos
+      if (recommendations.exercise) {
+        html += `
+          <h4>Exercícios Físicos</h4>
+          <p>${recommendations.exercise}</p>
+        `;
+      }
+      
+      // Sono
+      if (recommendations.sleep) {
+        html += `
+          <h4>Sono</h4>
+          <p>${recommendations.sleep}</p>
+        `;
+      }
+      
+      // Gerenciamento de Estresse
+      if (recommendations.stress_management) {
+        html += `
+          <h4>Gerenciamento de Estresse</h4>
+          <p>${recommendations.stress_management}</p>
+        `;
+      }
+      
+      // Outras Recomendações
+      if (recommendations.other) {
+        html += `
+          <h4>Outras Recomendações</h4>
+          <p>${recommendations.other}</p>
+        `;
+      }
+      
+      // Qualquer outra chave que pode existir
+      const handledKeys = ['exercise', 'sleep', 'stress_management', 'other'];
+      Object.entries(recommendations).forEach(([key, value]) => {
+        if (!handledKeys.includes(key) && value) {
           // Traduzir as chaves de inglês para português ou removê-las
           const translations = {
-            'sleep': 'Sono',
-            'exercise': 'Exercício',
-            'stress_management': 'Gestão de Estresse',
-            'other': 'Outros',
             'nutrition': 'Nutrição',
             'hydration': 'Hidratação',
             'mindfulness': 'Atenção Plena',
@@ -199,25 +278,16 @@ const generatePlanHTML = (plan: any): string => {
             'social': 'Social'
           };
           
-          lifestyleContent = Object.entries(recObj)
-            .map(([key, value]) => {
-              const translatedKey = translations[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
-              return `<p><strong>${translatedKey}:</strong> ${value}</p>`;
-            })
-            .join('');
-        } catch (e) {
-          lifestyleContent = 'Erro ao formatar recomendações';
-          console.error('Erro ao formatar recomendações de estilo de vida:', e);
+          const translatedKey = translations[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+          
+          html += `
+            <h4>${translatedKey}</h4>
+            <p>${value}</p>
+          `;
         }
-      } else {
-        lifestyleContent = finalPlan.lifestyle_recommendations;
-      }
+      });
       
       html += `
-        <div class="subsection">
-          <h3>Recomendações de Estilo de Vida</h3>
-          <div class="recommendations">
-            ${lifestyleContent}
           </div>
         </div>
       `;
@@ -257,26 +327,27 @@ const generatePlanHTML = (plan: any): string => {
     }
 
     // Adicionar observações adicionais se disponíveis
-    if (finalPlan.notes) {
+    if (finalPlan.additional_notes || finalPlan.notes) {
+      const notes = finalPlan.additional_notes || finalPlan.notes;
       let notesContent = '';
       
       // Verificar se o conteúdo é um objeto e formatá-lo adequadamente
-      if (typeof finalPlan.notes === 'object') {
+      if (typeof notes === 'object') {
         try {
-          if (Array.isArray(finalPlan.notes)) {
+          if (Array.isArray(notes)) {
             notesContent = '<ul>'
-              + finalPlan.notes.map(item => `<li>${item}</li>`).join('')
+              + notes.map(item => `<li>${item}</li>`).join('')
               + '</ul>';
           } else {
-            notesContent = Object.entries(finalPlan.notes)
+            notesContent = Object.entries(notes)
               .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
               .join('');
           }
         } catch (e) {
-          notesContent = finalPlan.notes?.toString() || 'Não informado';
+          notesContent = String(notes) || 'Não informado';
         }
       } else {
-        notesContent = finalPlan.notes;
+        notesContent = String(notes);
       }
       
       html += `
@@ -284,6 +355,35 @@ const generatePlanHTML = (plan: any): string => {
           <h3>Observações Adicionais</h3>
           <div class="recommendations">
             ${notesContent}
+          </div>
+        </div>
+      `;
+    }
+    
+    // Adicionar seção de análises incorporadas
+    if (plan.ifm_matrix?.analysis || plan.lab_results?.analysis || plan.tcm_observations?.analysis) {
+      html += `
+        <div class="subsection">
+          <h3>Análises Incorporadas</h3>
+          <div class="recommendations">
+            <p>Este plano incorpora dados das seguintes análises:</p>
+            <ul>
+      `;
+      
+      if (plan.tcm_observations?.analysis) {
+        html += `<li>Análise de Medicina Tradicional Chinesa</li>`;
+      }
+      
+      if (plan.lab_results?.analysis) {
+        html += `<li>Análise de Exames Laboratoriais</li>`;
+      }
+      
+      if (plan.ifm_matrix?.analysis) {
+        html += `<li>Análise da Matriz IFM</li>`;
+      }
+      
+      html += `
+            </ul>
           </div>
         </div>
       `;
@@ -465,8 +565,14 @@ export const exportPlanAsHTML = async (planId: number) => {
     // Generate a unique filename
     const minioPath = `plans/${planId}/exports/plan_${Date.now()}.html`;
     
+    // Ensure temp directory exists
+    const tempDir = path.join(__dirname, '../../../temp');
+    if (!fs.existsSync(tempDir)) {
+      await util.promisify(fs.mkdir)(tempDir, { recursive: true });
+    }
+    
     // Write HTML to file
-    const filePath = path.join(__dirname, '../../../temp', `plan_${planId}_${Date.now()}.html`);
+    const filePath = path.join(tempDir, `plan_${planId}_${Date.now()}.html`);
     await util.promisify(fs.writeFile)(filePath, html);
     
     // Upload to Minio
@@ -816,9 +922,15 @@ export const exportPlanAsDOCX = async (planId: number) => {
     // Generate a unique filename
     const minioPath = `plans/${planId}/exports/plan_${Date.now()}.docx`;
     
+    // Ensure temp directory exists
+    const tempDir = path.join(__dirname, '../../../temp');
+    if (!fs.existsSync(tempDir)) {
+      await util.promisify(fs.mkdir)(tempDir, { recursive: true });
+    }
+    
     // Create buffer from document
     const buffer = await docx.Packer.toBuffer(doc);
-    const filePath = path.join(__dirname, '../../../temp', `plan_${planId}_${Date.now()}.docx`);
+    const filePath = path.join(tempDir, `plan_${planId}_${Date.now()}.docx`);
     await fs.promises.writeFile(filePath, buffer);
     
     // Upload to Minio
