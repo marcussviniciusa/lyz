@@ -107,7 +107,11 @@ const LabAnalysisAnimation: React.FC<LabAnalysisAnimationProps> = ({
         }
       });
       
+      console.log('Verificando status da análise para ID do plano:', planId);
       console.log('Status da análise:', response);
+      
+      // Log detalhado da resposta
+      logResponseStructure(response, 'Status da Análise');
       
       if (response) {
         const { status, progress, isProcessing, data, error } = response;
@@ -368,85 +372,74 @@ const LabAnalysisAnimation: React.FC<LabAnalysisAnimationProps> = ({
                         .map(r => r.summary || r.text || r.content || '')
                         .filter(Boolean)
                         .join('\n\n'),
-                      outOfRange: resultsToNormalize.reduce((acc: any[], item: any) => {
-                        if (item.outOfRange && Array.isArray(item.outOfRange)) {
-                          return [...acc, ...item.outOfRange];
-                        }
-                        return acc;
-                      }, []),
-                      recommendations: resultsToNormalize.reduce((acc: string[], item: any) => {
-                        if (item.recommendations && Array.isArray(item.recommendations)) {
-                          return [...acc, ...item.recommendations];
-                        }
-                        return acc;
-                      }, [])
+                      outOfRange: [],
+                      recommendations: []
                     };
-                    resultsToNormalize = combinedResults;
-                    console.log('Resultados agregados:', combinedResults);
-                  }
-                  
-                  // Última chance: extrair qualquer texto que encontrarmos como sumário simples
-                  if (!resultsToNormalize || (!resultsToNormalize.summary && !resultsToNormalize.text && !resultsToNormalize.content)) {
-                    console.log('Tentando extração profunda de qualquer texto...');
-                    const extractDeepText = (obj: any): string => {
-                      if (!obj) return '';
-                      if (typeof obj === 'string') return obj;
-                      if (typeof obj === 'object') {
-                        if (Array.isArray(obj)) {
-                          return obj.map(item => extractDeepText(item)).filter(Boolean).join('\n');
-                        }
-                        return Object.values(obj).map(v => extractDeepText(v)).filter(Boolean).join('\n');
+                    
+                    // Extrair e consolidar valores anormais de todas as páginas
+                    const allOutOfRange: any[] = [];
+                    resultsToNormalize.forEach((pageResult: any) => {
+                      if (pageResult && pageResult.outOfRange && Array.isArray(pageResult.outOfRange)) {
+                        allOutOfRange.push(...pageResult.outOfRange);
                       }
-                      return '';
-                    };
+                    });
                     
-                    const extractedText = extractDeepText(planoResults);
-                    if (extractedText.length > 20) {
-                      console.log('Texto extraído profundamente:', extractedText.substring(0, 100) + '...');
-                      resultsToNormalize = {
-                        summary: extractedText,
-                        recommendations: ['Consulte um especialista para interpretar estes resultados em detalhes.'],
-                        outOfRange: []
-                      };
+                    // Remover duplicatas por nome
+                    if (allOutOfRange.length > 0) {
+                      combinedResults.outOfRange = allOutOfRange
+                        .filter((item: any) => item && typeof item === 'object' && item.name)
+                        // Remover duplicatas
+                        .filter((item: any, index: number, self: any[]) => 
+                          index === self.findIndex((t: any) => t.name === item.name)
+                        );
                     }
-                  }
-                  
-                  // Verificação final: se ainda não temos dados estruturados, tenta extrair manualmente
-                  if (!resultsToNormalize.summary && !resultsToNormalize.recommendations) {
-                    // Buscar em qualquer lugar que possa ter dados de análise
-                    console.log('Tentando extração manual de dados de análise');
                     
-                    let extractedText = '';
-                    let foundSummary = false;
+                    // Consolidar todas as recomendações
+                    const allRecommendations = new Set<string>();
+                    resultsToNormalize.forEach((pageResult: any) => {
+                      if (pageResult && pageResult.recommendations && Array.isArray(pageResult.recommendations)) {
+                        pageResult.recommendations.forEach((rec: string) => {
+                          if (rec && typeof rec === 'string' && rec.length > 5) {
+                            allRecommendations.add(rec);
+                          }
+                        });
+                      }
+                    });
+                    combinedResults.recommendations = Array.from(allRecommendations);
                     
-                    // Percorrer o objeto recursivamente para encontrar qualquer texto de análise
-                    const extractText = (obj: any, depth = 0) => {
-                      if (depth > 5) return; // Evitar recursão infinita
-                      
-                      if (!obj) return;
-                      
-                      if (typeof obj === 'string' && obj.length > 20) {
-                        extractedText += obj + '\n\n';
-                        foundSummary = true;
-                      } else if (typeof obj === 'object') {
-                        if (Array.isArray(obj)) {
-                          obj.forEach(item => extractText(item, depth + 1));
+                    // Criar um resumo consolidado a partir de todas as páginas
+                    const summaries = resultsToNormalize
+                        .filter((page: any) => page && typeof page === 'object')
+                        .map((page: any) => page.summary)
+                        .filter((summary: any) => summary && typeof summary === 'string' && summary.length > 10);
+                        
+                    if (summaries.length > 0) {
+                      // Use o resumo da primeira página como resumo principal se for informativo
+                      if (summaries[0] && summaries[0].length > 50) {
+                        combinedResults.summary = summaries[0];
+                      } else {
+                        // Caso contrário, combine os resumos mais informativos
+                        const mainSummaries = summaries
+                          .filter((s: string) => s.length > 30)
+                          .slice(0, 3); // Limita a 3 resumos para não ficar muito longo
+                          
+                        if (mainSummaries.length > 0) {
+                          combinedResults.summary = mainSummaries.join('\n\n');
                         } else {
-                          Object.values(obj).forEach(value => extractText(value, depth + 1));
+                          combinedResults.summary = 'Análise completa de resultados laboratoriais. Verifique as recomendações para mais detalhes.';
                         }
                       }
-                    };
-                    
-                    extractText(planoResults);
-                    
-                    if (foundSummary) {
-                      console.log('Texto de análise extraído manualmente:', extractedText.substring(0, 100) + '...');
-                      resultsToNormalize = {
-                        summary: extractedText,
-                        outOfRange: [],
-                        recommendations: ['Consulte um especialista para interpretar estes resultados em detalhes.']
-                      };
+                    } else {
+                      combinedResults.summary = 'Análise completa de resultados laboratoriais. Verifique as recomendações para mais detalhes.';
                     }
+                    
+                    // Se não temos recomendações, adicionar uma padrão
+                    if (combinedResults.recommendations.length === 0) {
+                      combinedResults.recommendations = ['Consulte um especialista para interpretar estes resultados em detalhes.'];
+                    }
+                    
+                    console.log('Resultado consolidado de PDF multipágina:', combinedResults);
+                    return combinedResults;
                   }
                   
                   // Certifique-se de que temos pelo menos um sumário mínimo
@@ -802,14 +795,53 @@ const runAnalysisWithoutPolling = async () => {
     return (completedSteps / analysisSteps.length) * 100;
   };
   
+  // Adicionar função para verificar estrutura da resposta e registrar detalhes
+  const logResponseStructure = (response: any, source: string) => {
+    console.log(`[DEBUG] Verificando estrutura de resposta de: ${source}`);
+    if (!response) {
+      console.log(`[DEBUG] Resposta de ${source} é nula ou indefinida`);
+      return;
+    }
+    
+    console.log(`[DEBUG] Tipo de resposta: ${typeof response}`);
+    
+    if (typeof response === 'object') {
+      console.log(`[DEBUG] Chaves no nível raiz:`, Object.keys(response));
+      
+      // Verificar campos comuns
+      if (response.data) {
+        console.log(`[DEBUG] Estrutura do campo data:`, Object.keys(response.data));
+        
+        if (response.data.analyzed_data) {
+          console.log(`[DEBUG] Estrutura de analyzed_data dentro de data:`, Object.keys(response.data.analyzed_data));
+          console.log(`[DEBUG] Conteúdo de summary:`, response.data.analyzed_data.summary);
+          console.log(`[DEBUG] outOfRange é array?`, Array.isArray(response.data.analyzed_data.outOfRange));
+          console.log(`[DEBUG] Quantidade de items em outOfRange:`, Array.isArray(response.data.analyzed_data.outOfRange) ? response.data.analyzed_data.outOfRange.length : 'não é array');
+        }
+      }
+      
+      if (response.analysis) {
+        console.log(`[DEBUG] Estrutura do campo analysis:`, typeof response.analysis === 'object' ? Object.keys(response.analysis) : 'não é um objeto');
+      }
+      
+      if (response.analyzed_data) {
+        console.log(`[DEBUG] Estrutura do campo analyzed_data no nível raiz:`, Object.keys(response.analyzed_data));
+      }
+    }
+  };
+
   // Normaliza a resposta da API para garantir uma estrutura consistente
   const normalizeApiResponse = (apiResponse: any) => {
     console.log('Normalizando API response:', apiResponse);
+    
+    // Executar função de log detalhado
+    logResponseStructure(apiResponse, 'API inicial');
+    
     // Verificar se temos uma resposta válida
     if (!apiResponse) {
       console.warn('Resposta da API nula ou indefinida');
       return {
-        summary: 'Não foi possível obter resultados da análise.',
+        summary: 'A análise não retornou resultados. Por favor, verifique a qualidade do arquivo enviado.',
         outOfRange: [],
         recommendations: ['Tente novamente ou verifique a qualidade do arquivo.']
       };
@@ -845,11 +877,21 @@ const runAnalysisWithoutPolling = async () => {
     
     // Verificar diferentes localizações possíveis dos dados
     if (apiResponse && apiResponse.data && typeof apiResponse.data === 'object') {
-      console.log('Dados encontrados dentro do campo "data"');
-      responseData = apiResponse.data;
+      console.log('Dados encontrados dentro do campo "data":', Object.keys(apiResponse.data));
+      
+      // Verificar se analyzed_data está dentro de data
+      if (apiResponse.data.analyzed_data && typeof apiResponse.data.analyzed_data === 'object') {
+        console.log('Campo analyzed_data encontrado dentro de data:', Object.keys(apiResponse.data.analyzed_data));
+        responseData = apiResponse.data.analyzed_data;
+      } else {
+        responseData = apiResponse.data;
+      }
     } else if (apiResponse && apiResponse.analysis && typeof apiResponse.analysis === 'object') {
       console.log('Dados encontrados dentro do campo "analysis"');
       responseData = apiResponse.analysis;
+    } else if (apiResponse && apiResponse.analyzed_data && typeof apiResponse.analyzed_data === 'object') {
+      console.log('Campo analyzed_data encontrado no nível raiz');
+      responseData = apiResponse.analyzed_data;
     } else if (apiResponse && apiResponse.analysis_method === 'image-analysis') {
       console.log('Resultados de análise de imagem detectados');
       responseData = apiResponse;
@@ -864,7 +906,7 @@ const runAnalysisWithoutPolling = async () => {
       return {
         summary: 'A análise não retornou resultados. Por favor, verifique a qualidade do arquivo enviado.',
         outOfRange: [],
-        recommendations: ['Tente novamente com um arquivo diferente ou melhor qualidade']
+        recommendations: ['Tente novamente ou verifique a qualidade do arquivo.']
       };
     }
     
@@ -895,6 +937,7 @@ const runAnalysisWithoutPolling = async () => {
       if (allOutOfRange.length > 0) {
         consolidatedResults.outOfRange = allOutOfRange
           .filter((item: any) => item && typeof item === 'object' && item.name)
+          // Remover duplicatas
           .filter((item: any, index: number, self: any[]) => 
             index === self.findIndex((t: any) => t.name === item.name)
           );
@@ -1015,23 +1058,29 @@ const runAnalysisWithoutPolling = async () => {
     
     // Extrair sumário/descrição da análise
     if (responseData.summary) {
+      console.log('Campo summary encontrado diretamente:', responseData.summary);
       normalized.summary = responseData.summary;
     } else if (responseData.description) {
+      console.log('Usando campo description como summary');
       normalized.summary = responseData.description;
     } else if (responseData.analysis) {
+      console.log('Usando campo analysis como summary');
       normalized.summary = typeof responseData.analysis === 'string' ? responseData.analysis : JSON.stringify(responseData.analysis);
     } else if (responseData.overview) {
+      console.log('Usando campo overview como summary');
       normalized.summary = typeof responseData.overview === 'string' ? responseData.overview : JSON.stringify(responseData.overview);
     } else if (responseData.text) {
+      console.log('Usando campo text como summary');
       // Pode ser um campo text quando a análise combinou resultados de texto
       normalized.summary = typeof responseData.text === 'string' ? responseData.text.substring(0, 300) : 'Texto de análise disponível';
     } else {
+      console.log('Nenhum campo de resumo válido encontrado, usando genérico');
       normalized.summary = 'Análise de resultados laboratoriais concluída. Verifique os marcadores e recomendações para detalhes.';
     }
     
     // Extrair marcadores fora da faixa
     if (Array.isArray(responseData.outOfRange)) {
-      // Garantir que temos objetos válidos
+      console.log('Campo outOfRange encontrado como array com', responseData.outOfRange.length, 'elementos');
       normalized.outOfRange = responseData.outOfRange
         .filter((item: any) => item && typeof item === 'object' && item.name)
         // Remover duplicatas baseado no nome do teste
@@ -1158,16 +1207,11 @@ const runAnalysisWithoutPolling = async () => {
       if (allOutOfRange.length > 0) {
         // Remover duplicatas baseado no nome do marcador
         const uniqueMarkers = allOutOfRange
+          .filter((item: any) => item && typeof item === 'object' && item.name)
+          // Remover duplicatas
           .filter((item: any, index: number, self: any[]) => 
             index === self.findIndex((t: any) => t.name === item.name)
-          )
-          .map((item: any) => ({
-            name: item.name || 'Marcador',
-            value: item.value || item.result || '--',
-            unit: item.unit || '',
-            reference: item.reference || item.range || 'Não especificado',
-            interpretation: item.interpretation || item.comment || 'Valor fora da faixa de referência'
-          }));
+          );
         
         // Combinar com os marcadores já encontrados
         normalized.outOfRange = [...normalized.outOfRange, ...uniqueMarkers]

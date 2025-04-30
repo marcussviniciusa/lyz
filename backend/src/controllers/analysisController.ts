@@ -294,8 +294,34 @@ export const analyzeLabResults = async (req: Request, res: Response) => {
       
       // Preparar uma resposta imediata baseada no texto fornecido
       try {
-        // Criar prompt para OpenAI
-        const promptTemplate = `Análise os seguintes resultados laboratoriais e forneça uma interpretação clínica em formato JSON com os campos: summary (resumo geral), outOfRange (array de valores fora da faixa de referência) e recommendations (array de recomendações). Texto:\n\n${extractedText}`;
+        // Limitar o tamanho do texto para evitar exceder o limite de tokens
+        const MAX_TEXT_LENGTH = 4000; // Aproximadamente 3000 tokens para texto
+        const truncatedText = extractedText.length > MAX_TEXT_LENGTH ? 
+          extractedText.substring(0, MAX_TEXT_LENGTH) + "... (texto truncado para análise)" : 
+          extractedText;
+        
+        const promptTemplate = `Você é um especialista em análise de exames laboratoriais. Analise detalhadamente os seguintes resultados laboratoriais e forneça:
+
+1. SUMMARY: Um resumo detalhado e específico da saúde do paciente com base nos resultados, destacando anormalidades importantes, possíveis padrões ou condições sugeridas pelos exames. Não use texto genérico. Seja específico e detalhado sobre os achados.
+
+2. OUTOFRANGE: Uma lista completa de TODOS os valores que estão fora da faixa de referência normal, incluindo:
+   - name: Nome completo do marcador ou exame
+   - value: Valor numérico do resultado
+   - unit: Unidade de medida (mg/dL, U/L, etc.)
+   - reference: Faixa de referência normal para o marcador
+   - interpretation: Significado clínico detalhado do valor anormal (explicação médica do que esse valor pode indicar)
+
+3. RECOMMENDATIONS: Pelo menos 3-5 recomendações específicas e personalizadas baseadas exclusivamente nos resultados anormais encontrados. Inclua sugestões nutricionais, de estilo de vida, ou de acompanhamento médico quando relevante.
+
+IMPORTANTE: 
+- Sua resposta DEVE ser um objeto JSON válido com as chaves "summary", "outOfRange" e "recommendations"
+- O campo "outOfRange" deve ser um array de objetos, cada um com as propriedades exatas: name, value, unit, reference e interpretation
+- Se não encontrar valores anormais, inclua um array vazio em "outOfRange"
+- Seja específico, detalhado e relevante. Não use respostas genéricas.
+- Inclua todos os valores anormais que você conseguir identificar no texto.
+
+Texto dos resultados laboratoriais:
+${truncatedText}`;
         
         // Identificar token usage
         const prompt = await Prompt.findOne({ where: { step_key: 'lab_results_analysis' } });
@@ -303,19 +329,22 @@ export const analyzeLabResults = async (req: Request, res: Response) => {
         // Obter instância do OpenAI já configurada
         const openai = await getOpenAI();
         
+        // Reduzir max_tokens para garantir que estamos dentro do limite
+        const MAX_TOKENS = 1000;
+        
         // Chamar OpenAI para análise de texto
         const chatCompletion = await openai.chat.completions.create({
           model: "gpt-4",
           messages: [{
             role: "system", 
-            content: "Você é um médico especializado em análise de exames laboratoriais. Forneça uma análise detalhada e estruturada em formato JSON."
+            content: "Você é um médico especializado em análise de exames laboratoriais. Sua tarefa é extrair e interpretar informações clínicas importantes de resultados de laboratório, identificando todos os valores anormais e fornecendo recomendações personalizadas baseadas nesses resultados."
           }, {
             role: "user",
             content: promptTemplate
           }],
           temperature: prompt ? prompt.temperature || 0.7 : 0.7,
-          max_tokens: prompt ? prompt.max_tokens || 2000 : 2000,
-          response_format: { type: "json_object" }
+          max_tokens: MAX_TOKENS
+          // Removendo o parâmetro response_format que não é suportado pelo modelo
         });
         
         // Extrair conteúdo
@@ -334,7 +363,89 @@ export const analyzeLabResults = async (req: Request, res: Response) => {
         }
         
         // Processar e salvar resultado
-        const analysisResult = JSON.parse(responseContent || '{}');
+        let analysisResult;
+        try {
+          // Tentar fazer o parse da resposta como JSON
+          let parsedResponse;
+          try {
+            parsedResponse = JSON.parse(responseContent || '{}');
+            console.log('Resposta da OpenAI parseada com sucesso:', JSON.stringify(parsedResponse, null, 2));
+          } catch (jsonError) {
+            console.error('Erro ao fazer parse da resposta como JSON, tentando extrair JSON do texto:', jsonError);
+            // Tenta encontrar um objeto JSON na resposta, caso esteja misturado com texto
+            const jsonMatch = responseContent.match(/(\{[\s\S]*\})/);
+            if (jsonMatch && jsonMatch[0]) {
+              parsedResponse = JSON.parse(jsonMatch[0]);
+              console.log('JSON extraído do texto:', JSON.stringify(parsedResponse, null, 2));
+            } else {
+              throw new Error('Não foi possível extrair JSON da resposta');
+            }
+          }
+          
+          // Validar e garantir que todos os campos necessários existam
+          analysisResult = {
+            summary: typeof parsedResponse.summary === 'string' && parsedResponse.summary.length > 30 
+              ? parsedResponse.summary 
+              : 'Análise de resultados laboratoriais concluída. Verifique os marcadores e recomendações para detalhes.',
+            outOfRange: Array.isArray(parsedResponse.outOfRange) 
+              ? parsedResponse.outOfRange.map(item => {
+                  if (typeof item === 'object' && item !== null) {
+                    return {
+                      name: item.marker || item.name || 'Marcador',
+                      value: item.value || '?',
+                      unit: item.unit || '',
+                      reference: item.reference || 'Valor de referência não especificado',
+                      interpretation: item.significance || item.interpretation || 'Significado clínico não especificado'
+                    };
+                  }
+                  return null;
+                }).filter(item => item !== null) 
+              : [],
+            recommendations: Array.isArray(parsedResponse.recommendations) && parsedResponse.recommendations.length > 0
+              ? parsedResponse.recommendations.filter(rec => typeof rec === 'string' && rec.length > 10)
+              : ['Mantenha hábitos saudáveis como alimentação equilibrada e atividade física regular.',
+                 'Faça exames de rotina periodicamente conforme recomendação médica.',
+                 'Consulte um especialista para interpretação detalhada dos resultados.']
+          };
+
+          // Log completo do resultado para depuração
+          console.log('Resultado final da análise que será enviado:', JSON.stringify(analysisResult, null, 2));
+          
+          // Garantir que temos pelo menos uma recomendação com conteúdo significativo
+          if (analysisResult.recommendations.length === 0 || 
+              analysisResult.recommendations.every(rec => !rec || rec.trim().length < 10)) {
+            analysisResult.recommendations = [
+              'Mantenha hábitos saudáveis como alimentação equilibrada e atividade física regular.', 
+              'Faça exames de rotina periodicamente conforme recomendação médica.'
+            ];
+          }
+          
+          // Garantir que o resumo não seja genérico ou muito curto
+          if (!analysisResult.summary || 
+              analysisResult.summary.length < 50 || 
+              analysisResult.summary.includes('concluída. Verifique os marcadores')) {
+            
+            // Se tivermos valores fora da faixa, use-os para criar um resumo mais informativo
+            if (analysisResult.outOfRange && analysisResult.outOfRange.length > 0) {
+              analysisResult.summary = `Análise identificou ${analysisResult.outOfRange.length} valores laboratoriais fora da faixa de referência, incluindo: ` + 
+                analysisResult.outOfRange.slice(0, 3).map(item => `${item.name} (${item.value})`).join(', ') +
+                (analysisResult.outOfRange.length > 3 ? ' e outros.' : '.');
+            }
+          }
+        } catch (parseError) {
+          console.error('Erro ao processar resposta da OpenAI como JSON:', parseError);
+          console.log('Resposta recebida:', responseContent);
+          
+          // Criar uma estrutura padrão caso o parse falhe
+          analysisResult = {
+            summary: 'Os resultados foram analisados, mas ocorreu um erro na formatação. Por favor, consulte um profissional de saúde.',
+            outOfRange: [],
+            recommendations: [
+              'Consulte um profissional de saúde para interpretação completa dos resultados.',
+              'Se necessário, solicite uma nova análise através do sistema.'
+            ]
+          };
+        }
         
         // Atualizar o plano com os resultados da análise
         await plan.update({
@@ -370,6 +481,7 @@ export const analyzeLabResults = async (req: Request, res: Response) => {
             analysis_method: "text-only-analysis",
             patient_data: labData.patient_data || {}
           },
+          analysis: analysisResult, // Adicionar para compatibilidade com outros endpoints
           elapsedTime: Date.now() - startTime.getTime()
         });
       } catch (error) {
@@ -422,7 +534,13 @@ export const analyzeLabResults = async (req: Request, res: Response) => {
             };
             
             // Preparar prompt para análise de texto
-            const analysisTextPrompt = `Analise os seguintes resultados laboratoriais e forneça uma interpretação clínica detalhada.
+            const analysisTextPrompt = `Você é um especialista em análise de exames laboratoriais. Analise os seguintes resultados laboratoriais e forneça:
+
+1. SUMMARY: Um resumo claro e específico da saúde geral do paciente com base nos resultados, destacando os pontos principais.
+2. OUTOFRANGE: Uma lista de todos os valores que estão fora da faixa de referência normal, no formato [{"marker": "nome do marcador", "value": "valor numérico", "reference": "faixa de referência", "significance": "significado clínico"}]
+3. RECOMMENDATIONS: Recomendações específicas e personalizadas baseadas nos resultados anormais encontrados.
+
+Formate sua resposta como um objeto JSON válido com as três chaves acima (summary, outOfRange, recommendations).
 
 Texto extraído do documento PDF:
 
@@ -444,7 +562,7 @@ Format sua resposta em um objeto JSON com as seguintes propriedades:
               console.log('Iniciando análise direta de texto do PDF...');
               const textAnalysisResult = await generateAIResponse(
                 Number(userId),
-                Number(plan.company_id),
+                Number(plan.company_id), 
                 'lab_results_text_analysis',
                 {
                   text: analysisTextPrompt,
@@ -644,7 +762,13 @@ Format sua resposta em um objeto JSON com as seguintes propriedades:
           
           return res.status(200).json({
             message: 'Lab results analyzed successfully',
-            data: imageAnalysisResult.data,
+            data: {
+              analyzed_data: imageAnalysisResult.data,
+              notes: labData.notes,
+              analysis_method: 'image-analysis',
+              patient_data: labData.patient_data || {}
+            },
+            analysis: imageAnalysisResult.data, // Adicionar para compatibilidade com outros endpoints
             tokensUsed: imageAnalysisResult.tokensUsed
           });
         } else {
@@ -681,10 +805,22 @@ Format sua resposta em um objeto JSON com as seguintes propriedades:
           detailedError = 'Problema temporário no serviço de análise. Por favor, tente novamente mais tarde.';
         }
         
+        // Enviar resposta com dados de fallback para evitar quebra da interface
         return res.status(statusCode).json({ 
-          message: errorMessage, 
+          message: errorMessage,
+          success: false, 
           error: detailedError,
-          suggestion: 'Verifique o formato do arquivo e tente novamente com um documento legível.'
+          data: { 
+            summary: 'Não foi possível analisar este documento. ' + errorMessage,
+            outOfRange: [],
+            recommendations: [
+              'Tente novamente com um arquivo de exame válido',
+              'Verifique se o arquivo está em um formato suportado (PDF ou imagem)',
+              'Certifique-se que o documento contém resultados de exames laboratoriais'
+            ],
+            processingStatus: 'failed'
+          },
+          isProcessing: false
         });
       }
     } else if (labData.text) {
@@ -692,11 +828,19 @@ Format sua resposta em um objeto JSON com as seguintes propriedades:
       try {
         console.log('Usando texto extraído previamente para análise');
         
-        const analysisTextPrompt = `Analise os seguintes resultados laboratoriais e forneça uma interpretação clínica detalhada.
+        const analysisTextPrompt = `Você é um especialista em análise de exames laboratoriais. Analise os seguintes resultados laboratoriais e forneça:
+
+1. SUMMARY: Um resumo claro e específico da saúde geral do paciente com base nos resultados, destacando os pontos principais.
+2. OUTOFRANGE: Uma lista de todos os valores que estão fora da faixa de referência normal, no formato [{"marker": "nome do marcador", "value": "valor numérico", "reference": "faixa de referência", "significance": "significado clínico"}]
+3. RECOMMENDATIONS: Recomendações específicas e personalizadas baseadas nos resultados anormais encontrados.
+
+Formate sua resposta como um objeto JSON válido com as três chaves acima (summary, outOfRange, recommendations).
 
 Texto extraído do documento: ${labData.text}
 
-Identifique valores fora do intervalo de referência, explique seus significados clínicos e forneça recomendações.
+Identifique todos os valores laboratoriais mencionados, incluindo nome do exame, valor encontrado e intervalo de referência.
+Explique os significados clínicos dos valores que estiverem fora do intervalo de referência.
+Forneça recomendações nutricionais e de suplementação baseadas nesses resultados.
 
 Format sua resposta em um objeto JSON com as seguintes propriedades:
 - summary: Um resumo em português da interpretação geral dos resultados (máximo 300 palavras)
@@ -728,7 +872,13 @@ Format sua resposta em um objeto JSON com as seguintes propriedades:
           
           return res.status(200).json({
             message: 'Lab results analyzed successfully',
-            data: textAnalysisResult.data,
+            data: {
+              analyzed_data: textAnalysisResult.data,
+              notes: labData.notes,
+              analysis_method: 'text-analysis',
+              patient_data: labData.patient_data || {}
+            },
+            analysis: textAnalysisResult.data, // Adicionar para compatibilidade com outros endpoints
             tokensUsed: textAnalysisResult.tokensUsed
           });
         } else {
@@ -922,7 +1072,7 @@ export const analyzeTCMData = async (
         content: userPrompt
       }],
       temperature: prompt ? prompt.temperature || 0.7 : 0.7,
-      max_tokens: prompt ? prompt.max_tokens || 2000 : 2000
+      max_tokens: prompt ? prompt.max_tokens || 1000 : 1000
       // Removido o response_format para compatibilidade
     });
     
@@ -974,8 +1124,6 @@ export const analyzeTCMData = async (
         recommendations: []
       };
     }
-    
-    /* Remover este código de teste para limite de tokens, foi adicionado incorretamente */
     
     return {
       success: true,

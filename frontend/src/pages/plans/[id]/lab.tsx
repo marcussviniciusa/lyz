@@ -900,7 +900,7 @@ const LabResultsPage: React.FC = () => {
                 </Link>
                 <button
                   type="submit"
-                  disabled={uploading || (!selectedFile && !plan?.lab_results?.file_url)}
+                  disabled={uploading || (!selectedFile && !plan?.lab_results?.file_url && !notes)}
                   className="btn-primary"
                 >
                   {uploading ? 'Enviando...' : 'Salvar e Analisar'}
