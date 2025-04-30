@@ -46,15 +46,15 @@ const formatText = (text: string): string => {
 
 // Função para transformar texto com quebras de linha em parágrafos HTML
 const formatParagraphs = (text: string): React.ReactNode[] => {
-  if (!text || typeof text !== 'string') {
+  if (!text || typeof text !== 'string' || text.trim() === '') {
     return [<p key="empty">Não especificado</p>];
   }
   
-  // Detectar se o texto contém uma lista numerada (padrão 1., 2., etc.)
-  const matches = text.match(/\d+\./g);
-  const hasNumberedList = matches && matches.length > 1;
+  // Verificar formato especial de texto numerado com pontos ou números que podem estar em um plano de tratamento
+  const hasListItems = text.match(/\d+\.\s+[A-Za-z]/);
   
-  if (hasNumberedList) {
+  // Detectar se o texto contém uma lista numerada (padrão 1., 2., etc.)
+  if (hasListItems) {
     // Temos uma lista dentro de um parágrafo - vamos formatá-la melhor
     return formatNumberedListInParagraph(text);
   }
@@ -74,28 +74,45 @@ const formatParagraphs = (text: string): React.ReactNode[] => {
 
 // Função auxiliar para formatar texto que contém lista numerada embutida
 const formatNumberedListInParagraph = (text: string): React.ReactNode[] => {
-  // Dividir o texto em partes, separando o que vem antes da lista e a lista em si
-  const parts = text.split(/(\d+\..+?)(?=\s\d+\.|$)/);
-  
+  // Verificar se o texto é apenas uma lista numerada ou tem partes de texto normal
+  const lines = text.split('\n').filter(line => line.trim().length > 0);
   const result: React.ReactNode[] = [];
   
-  // Processar cada parte
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i].trim();
-    if (!part) continue;
+  let currentText = '';
+  
+  // Processar cada linha
+  lines.forEach((line, index) => {
+    const isListItem = /^\d+\.\s+/.test(line.trim());
     
-    // Verificar se esta parte é um item de lista numerada
-    if (/^\d+\./.test(part)) {
+    if (isListItem) {
+      // Se acumulamos texto antes deste item de lista, adicionamos primeiro
+      if (currentText.trim()) {
+        result.push(<p key={`text-${index}`} className="mb-3 text-gray-800 font-medium">{currentText.trim()}</p>);
+        currentText = '';
+      }
+      
+      // Adicionar item de lista formatado
+      const [num, ...rest] = line.split('.');
+      const content = rest.join('.').trim();
+      
       result.push(
-        <p key={`list-item-${i}`} className="mb-2 pl-5 text-gray-800 font-medium">
-          <span className="font-bold text-primary-600">{part.split('.')[0]}.</span>
-          {part.split('.').slice(1).join('.')}
+        <p key={`list-item-${index}`} className="mb-2 pl-5 text-gray-800 font-medium">
+          <span className="font-bold text-primary-600">{num}.</span> {content}
         </p>
       );
     } else {
-      // Texto regular antes ou após a lista
-      result.push(<p key={`text-${i}`} className="mb-3 text-gray-800 font-medium">{part}</p>);
+      // Texto normal - acumular
+      currentText += line + ' ';
     }
+  });
+  
+  // Se sobrou texto acumulado no final
+  if (currentText.trim()) {
+    result.push(
+      <p key="final-text" className="mb-3 text-gray-800 font-medium">
+        {currentText.trim()}
+      </p>
+    );
   }
   
   return result;
