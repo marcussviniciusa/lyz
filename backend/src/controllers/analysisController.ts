@@ -967,8 +967,8 @@ export const analyzeTCMObservations = async (req: Request, res: Response) => {
     const { 
       pattern_diagnosis, 
       treatment_principles, 
-      tongue_data, 
-      pulse_data, 
+      tongue: tongue_data, 
+      pulse: pulse_data, 
       additional_notes 
     } = tcm_observations;
     
@@ -1021,6 +1021,34 @@ export const analyzeTCMData = async (
   companyId: number = 1
 ): Promise<AIResponse> => {
   try {
+    // Verificar se temos dados significativos de língua e pulso
+    const hasTongueData = tongueData && (
+      tongueData.color || 
+      tongueData.coating || 
+      tongueData.shape || 
+      tongueData.moisture || 
+      tongueData.notes
+    );
+    
+    const hasPulseData = pulseData && (
+      pulseData.rate || 
+      pulseData.strength || 
+      pulseData.rhythm || 
+      pulseData.quality || 
+      pulseData.notes
+    );
+    
+    // Log detalhado dos dados recebidos para diagnóstico
+    console.log('Diagnóstico de dados TCM recebidos:', {
+      hasTongueData,
+      hasPulseData,
+      hasPatternDiagnosis: !!patternDiagnosis,
+      hasTreatmentPrinciples: !!treatmentPrinciples,
+      hasAdditionalNotes: !!additionalNotes,
+      tongueDataKeys: tongueData ? Object.keys(tongueData) : [],
+      pulseDataKeys: pulseData ? Object.keys(pulseData) : [],
+    });
+    
     // Preparar os dados para análise com IA
     const userData = {
       patternDiagnosis: patternDiagnosis || '',
@@ -1047,26 +1075,56 @@ export const analyzeTCMData = async (
       2. Identificação dos padrões de desequilíbrio
       3. Recomendações específicas de tratamento
       
+      IMPORTANTE: Analise cuidadosamente todas as informações fornecidas. Não indique "dados não fornecidos" se os dados 
+      estiverem presentes na requisição. Se os dados estiverem vazios, indique especificamente quais informações 
+      estão faltando e use apenas os dados disponíveis para sua análise.
+      
+      INSTRUÇÕES ESPECÍFICAS:
+      - Utilize quaisquer dados fornecidos, mesmo que pareçam limitados
+      - Se dados específicos da língua e pulso estiverem disponíveis, dê ênfase a eles na análise
+      - Se o diagnóstico de padrão já estiver fornecido, valide-o e expanda-o
+      - Sempre forneça recomendações específicas baseadas nos dados disponíveis
+      - Não use frases genéricas como "Não foram fornecidas informações" a menos que realmente não existam dados
+      
       Formate o resultado em JSON com as seguintes propriedades:
       - summary: resumo geral da condição
       - patterns: array de objetos contendo os padrões identificados, cada um com name e description
       - recommendations: array de strings com recomendações específicas`;
       
     // Preparar os dados do usuário em formato adequado para o prompt
-    const userPrompt = `Por favor, analise os seguintes dados de Medicina Tradicional Chinesa:\n\n` +
-        `Diagnóstico de Padrão: ${userData.patternDiagnosis}\n` +
-        `Princípios de Tratamento: ${userData.treatmentPrinciples}\n` +
-        `Dados da Língua: ${JSON.stringify(userData.tongueData, null, 2)}\n` +
-        `Dados do Pulso: ${JSON.stringify(userData.pulseData, null, 2)}\n` +
-        `Observações Adicionais: ${userData.additionalNotes}\n` +
-        `Informações do Paciente: ${JSON.stringify(userData.patientInfo, null, 2)}`;
-    
+    const userPrompt = `Por favor, analise os seguintes dados de Medicina Tradicional Chinesa:\\n\\n` +
+        `DADOS DA LÍNGUA:\\n` + 
+        (hasTongueData ? 
+          `- Cor: ${userData.tongueData.color || 'Não especificado'}\\n` +
+          `- Cobertura: ${userData.tongueData.coating || 'Não especificado'}\\n` +
+          `- Forma: ${userData.tongueData.shape || 'Não especificado'}\\n` +
+          `- Umidade: ${userData.tongueData.moisture || 'Não especificado'}\\n` +
+          `- Observações: ${userData.tongueData.notes || 'Nenhuma observação adicional'}\\n`
+          : `Dados da língua insuficientes para análise.\\n`) +
+        
+        `\\nDADOS DO PULSO:\\n` +
+        (hasPulseData ?
+          `- Ritmo: ${userData.pulseData.rate || 'Não especificado'}\\n` +
+          `- Força: ${userData.pulseData.strength || 'Não especificado'}\\n` +
+          `- Regularidade: ${userData.pulseData.rhythm || 'Não especificado'}\\n` +
+          `- Qualidade: ${userData.pulseData.quality || 'Não especificado'}\\n` +
+          `- Observações: ${userData.pulseData.notes || 'Nenhuma observação adicional'}\\n`
+          : `Dados do pulso insuficientes para análise.\\n`) +
+        
+        `\\nDIAGNÓSTICO DE PADRÃO:\\n${userData.patternDiagnosis || 'Não fornecido'}\\n\\n` +
+        `PRINCÍPIOS DE TRATAMENTO:\\n${userData.treatmentPrinciples || 'Não fornecido'}\\n\\n` +
+        `OBSERVAÇÕES ADICIONAIS:\\n${userData.additionalNotes || 'Nenhuma observação adicional'}\\n\\n` +
+        `INFORMAÇÕES DO PACIENTE:\\n` +
+        `- Nome: ${userData.patientInfo.name || 'Não informado'}\\n` +
+        `- Idade: ${userData.patientInfo.age || 'Não informada'}\\n` +
+        `- Gênero: ${userData.patientInfo.gender || 'Não informado'}\\n`;
+      
     // Chamar OpenAI para análise
     const chatCompletion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo", // Usando modelo que tem melhor compatibilidade
       messages: [{
         role: "system", 
-        content: systemPrompt + '\n\nIMPORTANTE: Responda em formato JSON válido, incluindo os campos "summary", "patterns" (array de objetos) e "recommendations" (array de strings).'
+        content: systemPrompt + '\\n\\nIMPORTANTE: Responda em formato JSON válido, incluindo os campos "summary", "patterns" (array de objetos) e "recommendations" (array de strings).'
       }, {
         role: "user",
         content: userPrompt
@@ -1101,7 +1159,7 @@ export const analyzeTCMData = async (
     let analysisResult;
     try {
       // Tentar extrair JSON da resposta
-      const jsonMatch = responseContent?.match(/\{[\s\S]*\}/); // Encontra qualquer conteúdo entre chaves
+      const jsonMatch = responseContent?.match(/\\{[\\s\\S]*\\}/); // Encontra qualquer conteúdo entre chaves
       const jsonString = jsonMatch ? jsonMatch[0] : responseContent;
       analysisResult = JSON.parse(jsonString || '{}');
       

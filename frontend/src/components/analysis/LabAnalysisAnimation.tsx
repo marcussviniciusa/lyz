@@ -17,6 +17,27 @@ type AnalysisStep = {
   result?: string;
 }
 
+// Definindo interfaces globais para tipagem
+interface OutOfRangeItem {
+  name: string;
+  value: string;
+  unit?: string;
+  reference?: string;
+  interpretation?: string;
+}
+
+interface AnalysisResult {
+  summary: string;
+  outOfRange: OutOfRangeItem[];
+  recommendations: string[];
+  pages?: Array<{page: number, summary: string}>;
+  // Propriedades adicionais para processamento
+  processingStatus?: 'in_progress' | 'completed' | 'failed';
+  totalPages?: number;
+  processedPages?: number;
+  isDemo?: boolean;
+}
+
 const LabAnalysisAnimation: React.FC<LabAnalysisAnimationProps> = ({
   analyzeResults,
   fileUrl,
@@ -34,7 +55,7 @@ const LabAnalysisAnimation: React.FC<LabAnalysisAnimationProps> = ({
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisComplete, setAnalysisComplete] = useState<boolean>(false);
-  const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [analysisResults, setAnalysisResults] = useState<AnalysisResult | null>(null);
   const [isAnalysisRunning, setIsAnalysisRunning] = useState<boolean>(false);
   
   // Estados específicos para o mecanismo de polling
@@ -346,7 +367,7 @@ const LabAnalysisAnimation: React.FC<LabAnalysisAnimationProps> = ({
                           summary: summaries.join('\n\n'),
                           recommendations: allRecommendations.length > 0 ? 
                             allRecommendations : 
-                            ['Consulte um especialista para interpretar estes resultados laboratoriais.'],
+                            ['Consulte um especialista para interpretar estes resultados em detalhes.'],
                           outOfRange: []
                         };
                       }
@@ -372,8 +393,12 @@ const LabAnalysisAnimation: React.FC<LabAnalysisAnimationProps> = ({
                         .map(r => r.summary || r.text || r.content || '')
                         .filter(Boolean)
                         .join('\n\n'),
-                      outOfRange: [],
-                      recommendations: []
+                      outOfRange: [] as OutOfRangeItem[],
+                      recommendations: [] as string[],
+                      pages: resultsToNormalize.map((page: any, index: number) => ({
+                        page: index + 1,
+                        summary: page.summary || ''
+                      }))
                     };
                     
                     // Extrair e consolidar valores anormais de todas as páginas
@@ -831,7 +856,7 @@ const runAnalysisWithoutPolling = async () => {
   };
 
   // Normaliza a resposta da API para garantir uma estrutura consistente
-  const normalizeApiResponse = (apiResponse: any) => {
+  const normalizeApiResponse = (apiResponse: any): AnalysisResult => {
     console.log('Normalizando API response:', apiResponse);
     
     // Executar função de log detalhado
@@ -914,14 +939,25 @@ const runAnalysisWithoutPolling = async () => {
     if (responseData.analysisResults && Array.isArray(responseData.analysisResults) && responseData.analysisResults.length > 0) {
       console.log(`Detectado resultado de análise multi-página com ${responseData.analysisResults.length} páginas`);
       
-      // Construir um objeto consolidado com os resultados de todas as páginas
-      const consolidatedResults: any = {
-        summary: '',
-        outOfRange: [],
-        recommendations: [],
-        pages: responseData.analysisResults.map((pageResult: any, index: number) => ({
+      // Definindo interface para garantir tipagem correta
+      interface AnalysisResult {
+        summary: string;
+        outOfRange: OutOfRangeItem[];
+        recommendations: string[];
+        pages?: Array<{page: number, summary: string}>;
+      }
+      
+      // Criando objeto com tipo explícito para evitar erro de 'never[]'
+      const combinedResults: AnalysisResult = {
+        summary: responseData.analysisResults
+          .map((r: any) => r.summary || r.text || r.content || '')
+          .filter(Boolean)
+          .join('\n\n'),
+        outOfRange: [] as OutOfRangeItem[],
+        recommendations: [] as string[],
+        pages: responseData.analysisResults.map((page: any, index: number) => ({
           page: index + 1,
-          summary: pageResult.summary || ''
+          summary: page.summary || ''
         }))
       };
       
@@ -935,7 +971,7 @@ const runAnalysisWithoutPolling = async () => {
       
       // Remover duplicatas por nome
       if (allOutOfRange.length > 0) {
-        consolidatedResults.outOfRange = allOutOfRange
+        combinedResults.outOfRange = allOutOfRange
           .filter((item: any) => item && typeof item === 'object' && item.name)
           // Remover duplicatas
           .filter((item: any, index: number, self: any[]) => 
@@ -954,7 +990,7 @@ const runAnalysisWithoutPolling = async () => {
           });
         }
       });
-      consolidatedResults.recommendations = Array.from(allRecommendations);
+      combinedResults.recommendations = Array.from(allRecommendations);
       
       // Criar um resumo consolidado a partir de todas as páginas
       const summaries = responseData.analysisResults
@@ -965,7 +1001,7 @@ const runAnalysisWithoutPolling = async () => {
       if (summaries.length > 0) {
         // Use o resumo da primeira página como resumo principal se for informativo
         if (summaries[0] && summaries[0].length > 50) {
-          consolidatedResults.summary = summaries[0];
+          combinedResults.summary = summaries[0];
         } else {
           // Caso contrário, combine os resumos mais informativos
           const mainSummaries = summaries
@@ -973,22 +1009,22 @@ const runAnalysisWithoutPolling = async () => {
             .slice(0, 3); // Limita a 3 resumos para não ficar muito longo
           
           if (mainSummaries.length > 0) {
-            consolidatedResults.summary = mainSummaries.join('\n\n');
+            combinedResults.summary = mainSummaries.join('\n\n');
           } else {
-            consolidatedResults.summary = 'Análise completa de resultados laboratoriais. Verifique as recomendações para mais detalhes.';
+            combinedResults.summary = 'Análise completa de resultados laboratoriais. Verifique as recomendações para mais detalhes.';
           }
         }
       } else {
-        consolidatedResults.summary = 'Análise completa de resultados laboratoriais. Verifique as recomendações para mais detalhes.';
+        combinedResults.summary = 'Análise completa de resultados laboratoriais. Verifique as recomendações para mais detalhes.';
       }
       
       // Se não temos recomendações, adicionar uma padrão
-      if (consolidatedResults.recommendations.length === 0) {
-        consolidatedResults.recommendations = ['Consulte um especialista para interpretar estes resultados em detalhes.'];
+      if (combinedResults.recommendations.length === 0) {
+        combinedResults.recommendations = ['Consulte um especialista para interpretar estes resultados em detalhes.'];
       }
       
-      console.log('Resultado consolidado de PDF multipágina:', consolidatedResults);
-      return consolidatedResults;
+      console.log('Resultado consolidado de PDF multipágina:', combinedResults);
+      return combinedResults;
     }
     
     // Verificar se a responsta é imagem-analysis com analysis como string JSON
@@ -1030,7 +1066,7 @@ const runAnalysisWithoutPolling = async () => {
     }
     
     // Objeto base normalizado
-    const normalized: any = {
+    const normalized: AnalysisResult = {
       summary: '',
       outOfRange: [],
       recommendations: []
@@ -1103,7 +1139,7 @@ const runAnalysisWithoutPolling = async () => {
           index === self.findIndex((t: any) => t.name === item.name)
         );
     } else if (responseData.results && Array.isArray(responseData.results)) {
-      // Assumindo que temos uma estrutura de resultados diferente
+      // Assumindo que temos uma estrutura de resultados diferentes
       normalized.outOfRange = responseData.results
         .filter((result: any) => 
           result && (
@@ -1301,9 +1337,9 @@ const runAnalysisWithoutPolling = async () => {
   };
   
   // Cria dados de fallback baseados no contexto dos dados do arquivo
-  const createContextualFallback = (fileUrl?: string) => {
+  const createContextualFallback = (fileUrl?: string): AnalysisResult => {
     // Marcadores de exemplo que podem estar fora da faixa
-    const sampleMarkers = [
+    const sampleMarkers: OutOfRangeItem[] = [
       {
         name: 'Glicose',
         value: '105',
@@ -1447,7 +1483,7 @@ const runAnalysisWithoutPolling = async () => {
                   <div>
                     <h5 className="text-md font-medium text-gray-700">Marcadores Fora da Referência</h5>
                     <div className="mt-1 space-y-2">
-                      {analysisResults.outOfRange.map((marker: any, index: number) => (
+                      {analysisResults.outOfRange.map((marker: OutOfRangeItem, index: number) => (
                         <div key={index} className="p-2 bg-yellow-50 rounded border border-yellow-200">
                           <p className="text-sm font-medium text-yellow-800">{marker.name}: {marker.value} {marker.unit}</p>
                           <p className="text-xs text-yellow-600 mt-1">Referência: {marker.reference}</p>

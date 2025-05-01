@@ -164,8 +164,17 @@ export const planAPI = {
   // E os dados precisam estar no formato { tcm_observations: data }
   analyzeTCM: (id: string, data: any) => {
     console.log('Enviando dados de TCM para API:', { endpoint: `/plans/${id}/analyze-tcm`, data });
+    
+    // Garantir que os dados de língua e pulso estejam no formato correto
+    const formattedData = {
+      ...data,
+      // Garantir que a API reconheça corretamente os nomes dos campos
+      tongue_data: data.tongue || data.tongue_data,
+      pulse_data: data.pulse || data.pulse_data,
+    };
+    
     // Usamos diretamente o endpoint analyze-tcm que espera o formato { tcm_observations: data }
-    return api.post(`/plans/${id}/analyze-tcm`, { tcm_observations: data });
+    return api.post(`/plans/${id}/analyze-tcm`, { tcm_observations: formattedData });
   },
   
   // API para análise da matriz IFM
