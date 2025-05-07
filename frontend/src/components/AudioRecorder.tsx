@@ -75,12 +75,12 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
     try {
       // URL direta e fixa para o backend com timestamp para evitar cache
       const timestamp = new Date().getTime();
-      const directBackendUrl = `https://apilyz.marcussviniciusa.cloud/api/transcribe?t=${timestamp}`;
+      const directBackendUrl = `https://apilyz.ciclicidade.com/api/transcribe?t=${timestamp}`;
       console.log('Enviando para URL direta com timestamp:', directBackendUrl);
 
       // Usar instância do Axios com configuração específica
       const axiosInstance = axios.create({
-        baseURL: 'https://apilyz.marcussviniciusa.cloud',
+        baseURL: 'https://apilyz.ciclicidade.com',
         withCredentials: true,
         headers: {
           'Content-Type': 'multipart/form-data',

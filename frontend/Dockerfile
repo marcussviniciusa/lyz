@@ -7,10 +7,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
 # Variáveis públicas que serão incorporadas no build
-ARG NEXT_PUBLIC_API_URL=https://apilyz.marcussviniciusa.cloud/api
+ARG NEXT_PUBLIC_API_URL=https://apilyz.ciclicidade.com/api
 ARG NEXT_PUBLIC_SITE_NAME=Lyz-Healthcare
-ARG NEXT_PUBLIC_APP_URL=https://lyz.marcussviniciusa.cloud
-ARG NEXT_PUBLIC_APP_DOMAIN=lyz.marcussviniciusa.cloud
+ARG NEXT_PUBLIC_APP_URL=https://lyz.ciclicidade.com
+ARG NEXT_PUBLIC_APP_DOMAIN=lyz.ciclicidade.com
 
 # Usar as ARG como ENV para que sejam incorporadas no build
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
@@ -42,11 +42,11 @@ COPY --from=builder /app/out .
 # Primeiro, configurar um bloco server para redirecionar URLs com porta 3000
 RUN echo 'server {' > /etc/nginx/conf.d/default.conf \
     && echo '    listen 3000;' >> /etc/nginx/conf.d/default.conf \
-    && echo '    server_name lyz.marcussviniciusa.cloud:3000;' >> /etc/nginx/conf.d/default.conf \
+    && echo '    server_name lyz.ciclicidade.com:3000;' >> /etc/nginx/conf.d/default.conf \
     && echo '' >> /etc/nginx/conf.d/default.conf \
     && echo '    # Redirecionar todas as solicitações para a versão sem porta' >> /etc/nginx/conf.d/default.conf \
     && echo '    location / {' >> /etc/nginx/conf.d/default.conf \
-    && echo '        return 301 https://lyz.marcussviniciusa.cloud$request_uri;' >> /etc/nginx/conf.d/default.conf \
+    && echo '        return 301 https://lyz.ciclicidade.com$request_uri;' >> /etc/nginx/conf.d/default.conf \
     && echo '    }' >> /etc/nginx/conf.d/default.conf \
     && echo '}' >> /etc/nginx/conf.d/default.conf \
     && echo '' >> /etc/nginx/conf.d/default.conf \
@@ -59,24 +59,24 @@ RUN echo 'server {' > /etc/nginx/conf.d/default.conf \
     && echo '' >> /etc/nginx/conf.d/default.conf \
     && echo '    # Proxy específico para a API de transcrição' >> /etc/nginx/conf.d/default.conf \
     && echo '    location = /api/transcribe {' >> /etc/nginx/conf.d/default.conf \
-    && echo '        proxy_pass https://apilyz.marcussviniciusa.cloud/api/transcribe;' >> /etc/nginx/conf.d/default.conf \
+    && echo '        proxy_pass https://apilyz.ciclicidade.com/api/transcribe;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_http_version 1.1;' >> /etc/nginx/conf.d/default.conf \
-    && echo '        proxy_set_header Host apilyz.marcussviniciusa.cloud;' >> /etc/nginx/conf.d/default.conf \
+    && echo '        proxy_set_header Host apilyz.ciclicidade.com;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/conf.d/default.conf \
-    && echo '        proxy_set_header Origin "https://apilyz.marcussviniciusa.cloud";' >> /etc/nginx/conf.d/default.conf \
+    && echo '        proxy_set_header Origin "https://apilyz.ciclicidade.com";' >> /etc/nginx/conf.d/default.conf \
     && echo '    }' >> /etc/nginx/conf.d/default.conf \
     && echo '' >> /etc/nginx/conf.d/default.conf \
     && echo '    # Todas as outras solicitações para a API' >> /etc/nginx/conf.d/default.conf \
     && echo '    location /api/ {' >> /etc/nginx/conf.d/default.conf \
-    && echo '        proxy_pass https://apilyz.marcussviniciusa.cloud/api/;' >> /etc/nginx/conf.d/default.conf \
+    && echo '        proxy_pass https://apilyz.ciclicidade.com/api/;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_http_version 1.1;' >> /etc/nginx/conf.d/default.conf \
-    && echo '        proxy_set_header Host apilyz.marcussviniciusa.cloud;' >> /etc/nginx/conf.d/default.conf \
+    && echo '        proxy_set_header Host apilyz.ciclicidade.com;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/conf.d/default.conf \
     && echo '        proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/conf.d/default.conf \
-    && echo '        proxy_set_header Origin "https://apilyz.marcussviniciusa.cloud";' >> /etc/nginx/conf.d/default.conf \
+    && echo '        proxy_set_header Origin "https://apilyz.ciclicidade.com";' >> /etc/nginx/conf.d/default.conf \
     && echo '    }' >> /etc/nginx/conf.d/default.conf \
     && echo '' >> /etc/nginx/conf.d/default.conf \
     && echo '    # Todas as outras solicitações normais' >> /etc/nginx/conf.d/default.conf \

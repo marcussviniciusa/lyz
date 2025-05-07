@@ -57,7 +57,7 @@ export default async function handler(req, res) {
     }
 
     // Enviar a requisição para o backend
-    const backendUrl = 'https://apilyz.marcussviniciusa.cloud/api/transcribe';
+    const backendUrl = 'https://apilyz.ciclicidade.com/api/transcribe';
     console.log(`Encaminhando transcrição para: ${backendUrl}`);
     
     const response = await axios.post(backendUrl, formData, {
