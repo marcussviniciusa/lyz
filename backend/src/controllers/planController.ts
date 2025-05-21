@@ -155,9 +155,13 @@ export const updateLabResults = async (req: Request, res: Response) => {
   const companyId = req.user.company_id;
   const userRole = req.user.role;
   
-  if (!req.file) {
-    return res.status(400).json({ message: 'Lab results file is required' });
+  // Verificar se existem arquivos enviados
+  if (!req.files || !(req.files as Express.Multer.File[]).length) {
+    return res.status(400).json({ message: 'Lab results files are required' });
   }
+  
+  // Converter para array para garantir a tipagem correta
+  const files = req.files as Express.Multer.File[];
   
   try {
     // Find plan
@@ -172,144 +176,185 @@ export const updateLabResults = async (req: Request, res: Response) => {
       return res.status(403).json({ message: 'Not authorized to update this plan' });
     }
     
-    // Upload file to Minio
     const bucketName = process.env.MINIO_BUCKET || 'lyz-files';
-    const fileName = `lab-results/${plan.id}/${Date.now()}_${req.file.originalname}`;
+    const processedFiles = [];
+    const timestamp = Date.now();
     
-    await minioClient.putObject(
-      bucketName,
-      fileName,
-      req.file.buffer,
-      req.file.size,
-      { 'Content-Type': req.file.mimetype }
-    );
-    
-    // Generate presigned URL
-    const fileUrl = await minioClient.presignedGetObject(bucketName, fileName, 24 * 60 * 60); // 24 hours
-    
-    // Preparar para extrair texto do arquivo
-    let extractedText = "";
-    let documentMetadata: DocumentMetadata = {};
-    let extractionMethod = "none";
-    
-    // Converter o buffer para base64 para armazenar no banco de dados
-    // Isso permitirá que o controlador de análise acesse o arquivo diretamente
-    const fileBuffer = req.file.buffer.toString('base64');
-    
-    // Processar arquivo com base no tipo MIME
-    if (req.file.mimetype === 'application/pdf') {
+    // Processar cada arquivo enviado
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
       try {
-        // Importar o serviço de PDF dinamicamente para evitar dependência circular
-        const { extractTextFromPDF } = await import('../services/pdf/pdfService');
+        // Upload file to Minio
+        const fileName = `lab-results/${plan.id}/${timestamp}_${i}_${file.originalname}`;
         
-        // Extrair texto do PDF usando o serviço de PDF
-        const pdfResult = await extractTextFromPDF(req.file.buffer);
+        await minioClient.putObject(
+          bucketName,
+          fileName,
+          file.buffer,
+          file.size,
+          { 'Content-Type': file.mimetype }
+        );
         
-        if (pdfResult.success) {
-          extractionMethod = "pdf-parse";
-          extractedText = pdfResult.text;
-          
-          // Coletar metadados do PDF para ajudar na análise
-          documentMetadata = {
-            pageCount: pdfResult.info?.numPages || 0,
-            info: pdfResult.info || {},
-            metadata: pdfResult.metadata || {},
-            version: pdfResult.info?.PDFVersion || '',
-            textLength: pdfResult.text.length
-          };
-          
-          console.log(`PDF processado com sucesso: ${documentMetadata.pageCount} páginas, ${extractedText.length} caracteres`);
-          
-          // Verificamos se o texto extraído é proporcionalmente suficiente para o número de páginas
-          // Isso é mais preciso do que um limite fixo de caracteres
-          const textoMinimoEsperadoPorPagina = 30; // Caracteres mínimos esperados por página
-          const textoEsperadoTotal = textoMinimoEsperadoPorPagina * documentMetadata.pageCount;
-          
-          if (extractedText.length < textoEsperadoTotal && documentMetadata.pageCount > 0) {
-            console.log(`Texto extraído (${extractedText.length} caracteres) menor que o esperado para ${documentMetadata.pageCount} páginas.`);
-            // Ainda vamos usar o texto mesmo que seja pouco, pois pode conter informações úteis
-            extractionMethod = "pdf-parse-limited";
-            // Não adicionamos a mensagem de aviso ao texto extraído para não poluir os dados
+        // Generate presigned URL
+        const fileUrl = await minioClient.presignedGetObject(bucketName, fileName, 24 * 60 * 60); // 24 hours
+        
+        // Preparar para extrair texto do arquivo
+        let extractedText = "";
+        let documentMetadata: DocumentMetadata = {};
+        let extractionMethod = "none";
+        
+        // Converter o buffer para base64 para armazenar no banco de dados
+        const fileBuffer = file.buffer.toString('base64');
+        
+        // Processar arquivo com base no tipo MIME
+        if (file.mimetype === 'application/pdf') {
+          try {
+            // Importar o serviço de PDF dinamicamente para evitar dependência circular
+            const { extractTextFromPDF } = await import('../services/pdf/pdfService');
+            
+            // Extrair texto do PDF usando o serviço de PDF
+            const pdfResult = await extractTextFromPDF(file.buffer);
+            
+            if (pdfResult.success) {
+              extractionMethod = "pdf-parse";
+              extractedText = pdfResult.text;
+              
+              // Coletar metadados do PDF para ajudar na análise
+              documentMetadata = {
+                pageCount: pdfResult.info?.numPages || 0,
+                info: pdfResult.info || {},
+                metadata: pdfResult.metadata || {},
+                version: pdfResult.info?.PDFVersion || '',
+                textLength: pdfResult.text.length
+              };
+              
+              console.log(`PDF processado com sucesso: ${documentMetadata.pageCount} páginas, ${extractedText.length} caracteres`);
+              
+              // Verificamos se o texto extraído é proporcionalmente suficiente para o número de páginas
+              const textoMinimoEsperadoPorPagina = 30; // Caracteres mínimos esperados por página
+              const textoEsperadoTotal = textoMinimoEsperadoPorPagina * documentMetadata.pageCount;
+              
+              if (extractedText.length < textoEsperadoTotal && documentMetadata.pageCount > 0) {
+                console.log(`Texto extraído (${extractedText.length} caracteres) menor que o esperado para ${documentMetadata.pageCount} páginas.`);
+                extractionMethod = "pdf-parse-limited";
+              }
+            } else {
+              // Se a extração falhou, registrar o erro
+              extractionMethod = "pdf-parse-failed";
+              const errorMessage = pdfResult.error || 'Falha na extração de texto';
+              extractedText = `Não foi possível extrair o texto completo do PDF. ${errorMessage}. O arquivo pode estar protegido, danificado ou em formato não processado.`;
+              
+              documentMetadata = {
+                error: true,
+                errorType: 'PDFParseError',
+                errorMessage
+              };
+            }
+          } catch (pdfError: any) {
+            console.error('Erro ao extrair texto do PDF:', pdfError);
+            extractionMethod = "pdf-parse-error";
+            
+            // Melhorar a mensagem de erro com mais detalhes
+            const errorMessage = pdfError.message || 'Erro desconhecido';
+            extractedText = `Não foi possível extrair o texto completo do PDF. ${errorMessage}. O arquivo pode estar protegido, danificado ou em formato não processado.`;
+            
+            documentMetadata = {
+              error: true,
+              errorType: pdfError.name || 'PDFParseError',
+              errorMessage
+            };
           }
-        } else {
-          // Se a extração falhou, registrar o erro
-          extractionMethod = "pdf-parse-failed";
-          const errorMessage = pdfResult.error || 'Falha na extração de texto';
-          extractedText = `Não foi possível extrair o texto completo do PDF. ${errorMessage}. O arquivo pode estar protegido, danificado ou em formato não processado.`;
+        } else if (file.mimetype.startsWith('image/')) {
+          extractionMethod = "image-description";
+          // Para imagens, poderia ser implementado OCR no futuro
+          extractedText = "Imagem de resultados laboratoriais enviada. A análise será baseada nas notas fornecidas pelo profissional.";
           
           documentMetadata = {
-            error: true,
-            errorType: 'PDFParseError',
-            errorMessage
+            imageType: file.mimetype,
+            size: file.size,
+            needsOCR: true
+          };
+        } else {
+          extractionMethod = "none";
+          extractedText = "Tipo de arquivo não suportado para extração de texto automática.";
+          
+          documentMetadata = {
+            fileType: file.mimetype,
+            size: file.size,
+            unsupported: true
           };
         }
-      } catch (pdfError: any) {
-        console.error('Erro ao extrair texto do PDF:', pdfError);
-        extractionMethod = "pdf-parse-error";
         
-        // Melhorar a mensagem de erro com mais detalhes
-        const errorMessage = pdfError.message || 'Erro desconhecido';
-        extractedText = `Não foi possível extrair o texto completo do PDF. ${errorMessage}. O arquivo pode estar protegido, danificado ou em formato não processado.`;
+        // Process individual file using AI if needed
+        const aiResponse = await generateAIResponse(
+          Number(userId),
+          Number(plan.company_id),
+          'lab_results_analysis',
+          { 
+            patientData: plan.patient_data, 
+            labResultsText: extractedText,
+            fileType: file.mimetype,
+            isPDF: file.mimetype === 'application/pdf',
+            documentMetadata 
+          }
+        );
         
-        documentMetadata = {
-          error: true,
-          errorType: pdfError.name || 'PDFParseError',
-          errorMessage
+        // Create processed file object
+        const processedFile = {
+          fileUrl,
+          fileName,
+          fileType: file.mimetype,
+          extractedText,
+          extractionMethod,
+          documentMetadata: {
+            ...documentMetadata,
+            // Adicionar flag para indicar que o PDF é legível e de boa qualidade
+            isHighQualityPDF: file.mimetype === 'application/pdf' && (extractionMethod === "pdf-parse" || extractionMethod === "pdf-parse-limited")
+          },
+          uploadedAt: new Date().toISOString(),
+          analysis: aiResponse.success ? aiResponse.data : 'Analysis failed',
+          file_buffer: fileBuffer,
+          image_url: fileUrl,
+          document_type: file.mimetype === 'application/pdf' ? 'pdf' : 'image',
+          index: i,
+          originalName: file.originalname
         };
+        
+        // Add to processed files array
+        processedFiles.push(processedFile);
+        
+      } catch (fileError) {
+        console.error(`Erro ao processar arquivo ${i} (${file.originalname}):`, fileError);
+        // Add error information to processed files
+        processedFiles.push({
+          error: true,
+          errorMessage: `Erro ao processar arquivo: ${fileError.message || 'Erro desconhecido'}`,
+          originalName: file.originalname,
+          fileType: file.mimetype,
+          index: i,
+          uploadedAt: new Date().toISOString()
+        });
       }
-    } else if (req.file.mimetype.startsWith('image/')) {
-      extractionMethod = "image-description";
-      // Para imagens, poderia ser implementado OCR no futuro
-      // Por enquanto, usamos uma mensagem indicando que é uma imagem
-      extractedText = "Imagem de resultados laboratoriais enviada. A análise será baseada nas notas fornecidas pelo profissional.";
-      
-      documentMetadata = {
-        imageType: req.file.mimetype,
-        size: req.file.size,
-        needsOCR: true
-      };
-    } else {
-      extractionMethod = "none";
-      extractedText = "Tipo de arquivo não suportado para extração de texto automática.";
-      
-      documentMetadata = {
-        fileType: req.file.mimetype,
-        size: req.file.size,
-        unsupported: true
-      };
     }
     
-    // Process lab results using AI
-    const aiResponse = await generateAIResponse(
-      Number(userId),
-      Number(plan.company_id),
-      'lab_results_analysis',
-      { 
-        patientData: plan.patient_data, 
-        labResultsText: extractedText,
-        fileType: req.file.mimetype,
-        isPDF: req.file.mimetype === 'application/pdf',
-        documentMetadata 
-      }
-    );
-    
-    // Update plan with lab results and analysis
+    // Combine all file results into a single lab results object
     const labResults = {
-      fileUrl,
-      fileName,
-      fileType: req.file.mimetype,
-      extractedText,
-      extractionMethod,
-      documentMetadata: {
-        ...documentMetadata,
-        // Adicionar flag para indicar que o PDF é legível e de boa qualidade
-        isHighQualityPDF: req.file.mimetype === 'application/pdf' && (extractionMethod === "pdf-parse" || extractionMethod === "pdf-parse-limited")
-      },
+      files: processedFiles,
+      totalFiles: files.length,
+      processedFiles: processedFiles.length,
       uploadedAt: new Date().toISOString(),
-      analysis: aiResponse.success ? aiResponse.data : 'Analysis failed',
-      file_buffer: fileBuffer, // Usar o buffer do arquivo convertido anteriormente para base64
-      image_url: fileUrl, // Adicionar campo image_url para compatibilidade com o controller de análise
-      document_type: req.file.mimetype === 'application/pdf' ? 'pdf' : 'image' // Adicionar tipo de documento para facilitar tratamento
+      uploadedBy: userId,
+      // Extract combined data from all files for easier access
+      combinedAnalysis: processedFiles.length > 0 ? {
+        summary: `Análise de ${processedFiles.length} arquivos de resultados laboratoriais.`,
+        outOfRange: processedFiles
+          .filter(file => file.analysis && file.analysis.outOfRange)
+          .flatMap(file => file.analysis.outOfRange || []),
+        recommendations: [...new Set(processedFiles
+          .filter(file => file.analysis && file.analysis.recommendations)
+          .flatMap(file => file.analysis.recommendations || []))]
+      } : { summary: 'Nenhum arquivo processado com sucesso.' }
     };
     
     await plan.update({ lab_results: labResults });
@@ -510,6 +555,9 @@ export const updateIFMMatrix = async (req: Request, res: Response) => {
   }
 };
 
+// Importar serviço RAG
+import { getRAGService } from '../services/knowledge/ragService';
+
 // Generate final plan
 export const generateFinalPlan = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -601,8 +649,8 @@ export const generateFinalPlan = async (req: Request, res: Response) => {
     if (hasTimelineData) inputData.timelineData = plan.timeline_data;
     if (hasIFMData) inputData.ifmMatrix = plan.ifm_matrix;
     
-    // Adicionar instrução específica para o formato de resposta
-    const systemInstruction = `Você é um especialista em Medicina Integrativa. Gere um plano terapêutico completo baseado nos dados do paciente, seguindo esta estrutura:  
+    // Definir a instrução básica para o formato de resposta
+    let systemInstruction = `Você é um especialista em Medicina Integrativa. Gere um plano terapêutico completo baseado nos dados do paciente, seguindo esta estrutura:  
     - diagnosis: Diagnóstico detalhado baseado nos dados fornecidos
     - treatment_plan: Plano de tratamento detalhado com recomendações específicas
     - nutritional_recommendations:
@@ -619,6 +667,29 @@ export const generateFinalPlan = async (req: Request, res: Response) => {
     - additional_notes: Observações importantes adicionais
     
     IMPORTANTE: Sua resposta deve ser no formato JSON válido, seguindo exatamente a estrutura acima.`;
+    
+    // Obter o serviço RAG
+    const ragService = getRAGService();
+    
+    try {
+      // Gerar uma consulta personalizada com base nos dados do paciente
+      const userQuery = ragService.generateQueryFromPatientData(plan.patient_data, {
+        lab_results: plan.lab_results,
+        tcm_observations: plan.tcm_observations,
+        ifm_matrix: plan.ifm_matrix,
+        questionnaire_data: plan.questionnaire_data
+      });
+      
+      console.log(`Consulta gerada para RAG: ${userQuery}`);
+      
+      // Enriquecer o prompt com conhecimento médico relevante
+      systemInstruction = await ragService.enhancePromptWithKnowledge(userQuery, systemInstruction);
+      
+      console.log('Prompt enriquecido com conhecimento médico da base RAG');
+    } catch (ragError) {
+      console.error('Erro ao aplicar RAG ao prompt:', ragError);
+      // Continua com o prompt original em caso de erro
+    }
     
     const aiResponse = await generateAIResponse(
       Number(userId),

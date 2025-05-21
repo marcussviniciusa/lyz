@@ -46,7 +46,7 @@ router.use(authenticateToken);
 // Plan routes
 router.post('/start', asyncHandler(startPlan));
 router.post('/:id/questionnaire', asyncHandler(updateQuestionnaire));
-router.post('/:id/lab-results', upload.single('file'), asyncHandler(updateLabResults));
+router.post('/:id/lab-results', upload.array('files', 10), asyncHandler(updateLabResults));
 router.post('/:id/tcm', asyncHandler(updateTCMObservations));
 router.post('/:id/timeline', asyncHandler(updateTimeline));
 router.post('/:id/ifm-matrix', asyncHandler(updateIFMMatrix));

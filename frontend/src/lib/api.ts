@@ -147,6 +147,22 @@ export const planAPI = {
     });
   },
   
+  // Função para upload de múltiplos arquivos
+  uploadMultipleLabResults: (id: string, files: File[]) => {
+    const formData = new FormData();
+    
+    // Anexar todos os arquivos com o nome 'files[]'
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+    
+    return api.post(`/plans/${id}/lab-results`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  
   analyzeLabResults: (id: string, data: any) => api.post(`/plans/${id}/analyze-labs`, { lab_results: data }),
   
   // Salvar permanentemente os resultados da análise (para garantir persistência)

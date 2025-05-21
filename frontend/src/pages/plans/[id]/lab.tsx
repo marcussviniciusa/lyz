@@ -52,8 +52,9 @@ const LabResultsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null); // Mantendo para compatibilidade
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [isPdf, setIsPdf] = useState<boolean>(false);
@@ -389,34 +390,62 @@ const LabResultsPage: React.FC = () => {
   // }, [plan]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      const validFiles: File[] = [];
+      let hasError = false;
       
-      // Verificar o tipo e tamanho do arquivo
-      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
-        setError('Por favor, selecione um arquivo PDF, JPEG ou PNG');
+      // Verificar cada arquivo
+      for (const file of files) {
+        // Verificar o tipo do arquivo
+        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+          setError('Por favor, selecione apenas arquivos PDF, JPEG ou PNG');
+          hasError = true;
+          break;
+        }
+        
+        // Verificar o tamanho do arquivo
+        if (file.size > 5 * 1024 * 1024) { // 5MB
+          setError(`O arquivo ${file.name} excede o tamanho máximo de 5MB`);
+          hasError = true;
+          break;
+        }
+        
+        validFiles.push(file);
+      }
+      
+      if (hasError) {
         return;
       }
       
-      if (file.size > 5 * 1024 * 1024) { // 5MB
-        setError('O arquivo deve ter no máximo 5MB');
-        return;
+      setSelectedFiles(validFiles);
+      
+      // Manter compatibilidade com o código existente
+      if (validFiles.length > 0) {
+        setSelectedFile(validFiles[0]);
       }
       
-      setSelectedFile(file);
       setError(null);
       
+      // Usar o primeiro arquivo para preview
+      const firstFile = validFiles[0];
+      
       // Verificar se é um PDF
-      setIsPdf(file.type === 'application/pdf');
+      setIsPdf(firstFile.type === 'application/pdf');
       setPageNumber(1); // Resetar para a primeira página
       setNumPages(null); // Resetar número de páginas
       
-      // Cria URL para preview
+      // Criar URL para preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setPreviewUrl(reader.result as string);
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(firstFile);
+      
+      // Mostrar informação sobre múltiplos arquivos
+      if (validFiles.length > 1) {
+        setSuccessMessage(`${validFiles.length} arquivos selecionados para upload`);
+      }
     }
   };
 
@@ -425,9 +454,9 @@ const LabResultsPage: React.FC = () => {
     
     if (!id) return;
     
-    // Verifica se há um arquivo ou notas de texto (resumo)
-    if (!selectedFile && !plan?.lab_results?.file_url && !notes) {
-      setError('Por favor, selecione um arquivo ou insira um resumo dos resultados laboratoriais');
+    // Verifica se há arquivos ou notas de texto (resumo)
+    if (selectedFiles.length === 0 && !plan?.lab_results?.file_url && !notes) {
+      setError('Por favor, selecione um ou mais arquivos ou insira um resumo dos resultados laboratoriais');
       return;
     }
     
@@ -437,7 +466,7 @@ const LabResultsPage: React.FC = () => {
       setError(null);
       
       // Verificar se estamos lidando com análise baseada apenas em texto
-      const isTextOnlyAnalysis = !selectedFile && !plan?.lab_results?.file_url && notes;
+      const isTextOnlyAnalysis = selectedFiles.length === 0 && !plan?.lab_results?.file_url && notes;
       
       if (isTextOnlyAnalysis) {
         console.log('Iniciando fluxo de análise baseada apenas em texto');
@@ -451,9 +480,16 @@ const LabResultsPage: React.FC = () => {
         // Salvar diretamente via endpoint de saveLabAnalysisResults
         await planAPI.saveLabAnalysisResults(id as string, textAnalysisPayload);
       } else {
-        // Fluxo normal com arquivo
-        if (selectedFile) {
-          await planAPI.uploadLabResults(id as string, selectedFile);
+        // Fluxo normal com arquivo(s)
+        if (selectedFiles.length > 0) {
+          // Verificar se temos função para upload de múltiplos arquivos
+          if (selectedFiles.length === 1) {
+            // Se só temos um arquivo, usar a função existente
+            await planAPI.uploadLabResults(id as string, selectedFiles[0]);
+          } else {
+            // Enviar múltiplos arquivos
+            await planAPI.uploadMultipleLabResults(id as string, selectedFiles);
+          }
         }
         
         // Se há notas, atualiza as notas
@@ -559,6 +595,7 @@ const LabResultsPage: React.FC = () => {
                     onChange={handleFileChange}
                     className="hidden"
                     accept=".pdf,.jpg,.jpeg,.png"
+                    multiple
                   />
                   
                   {plan?.lab_results?.file_url ? (

@@ -9,3 +9,8 @@ google_app_cred.json
 
 frontend/.next/cache/webpack/client-development/*.pack.gz
 frontend/.next/cache/webpack/client-development/*.gz
+
+.env
+backend/.env
+frontend/.env
+lyz-stack.yml

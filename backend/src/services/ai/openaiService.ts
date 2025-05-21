@@ -15,7 +15,7 @@ dotenv.config();
 const OPENAI_API_KEY = 'openai_api_key';
 
 // Função para obter a chave do banco de dados ou usar a do .env como fallback
-const getApiKey = async () => {
+export const getOpenAIApiKey = async () => {
   try {
     const setting = await Setting.findOne({ where: { key: OPENAI_API_KEY } });
     if (setting && setting.value) {
@@ -34,7 +34,7 @@ let openaiInstance: OpenAI | null = null;
 
 // Função para obter a instância do OpenAI com a chave atualizada
 export const getOpenAI = async () => {
-  const apiKey = await getApiKey();
+  const apiKey = await getOpenAIApiKey();
   
   if (!apiKey) {
     throw new Error('Chave de API da OpenAI não encontrada');
