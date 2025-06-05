@@ -3,7 +3,11 @@ import 'express';
 // Estendendo o namespace Express
 declare namespace Express {
   export interface Request {
-    user?: any;
+    user: {
+      id: string;
+      role?: string;
+      company_id?: string;
+    };
     file?: {
       buffer: Buffer;
       originalname: string;

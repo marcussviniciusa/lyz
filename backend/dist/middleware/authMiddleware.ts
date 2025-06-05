@@ -11,18 +11,20 @@ declare global {
 }
 
 // Middleware to authenticate JWT token
-export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+export const authenticateToken = (req: Request, res: Response, next: NextFunction): void => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Format: "Bearer TOKEN"
   
   if (!token) {
-    return res.status(401).json({ message: 'No token provided' });
+    res.status(401).json({ message: 'No token provided' });
+    return;
   }
 
   const decoded = verifyToken(token);
   
   if (!decoded) {
-    return res.status(403).json({ message: 'Invalid or expired token' });
+    res.status(403).json({ message: 'Invalid or expired token' });
+    return;
   }
   
   // Add user info to request
@@ -31,13 +33,15 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
 };
 
 // Middleware to check if user is superadmin
-export const isSuperadmin = (req: Request, res: Response, next: NextFunction) => {
+export const isSuperadmin = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user) {
-    return res.status(401).json({ message: 'Authentication required' });
+    res.status(401).json({ message: 'Authentication required' });
+    return;
   }
   
   if (req.user.role !== 'superadmin') {
-    return res.status(403).json({ message: 'Superadmin privileges required' });
+    res.status(403).json({ message: 'Superadmin privileges required' });
+    return;
   }
   
   next();

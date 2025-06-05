@@ -125,12 +125,15 @@ api.interceptors.response.use(
 
 // Auth API calls
 export const authAPI = {
-  validateEmail: (email: string) => api.get(`/auth/validate-email?email=${email}`),
+  validateEmail: (email: string, purpose?: string) => 
+    api.get(`/auth/validate-email?email=${email}${purpose ? `&purpose=${purpose}` : ''}`),
   register: (userData: any) => api.post('/auth/register', userData),
   login: (credentials: { email: string; password: string }) => 
     api.post('/auth/login', credentials),
   refreshToken: (refreshToken: string) => 
     api.post('/auth/refresh', { refreshToken }),
+  resetPassword: (data: { email: string; newPassword: string; cursEducaData: any }) => 
+    api.post('/auth/reset-password', data),
 };
 
 // Plan API calls
@@ -139,7 +142,7 @@ export const planAPI = {
 
   uploadLabResults: (id: string, file: File) => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('files', file);
     return api.post(`/plans/${id}/lab-results`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -265,7 +268,7 @@ export const adminAPI = {
     return api.put('/admin/settings/google-speech', data);
   },
   
-  // OpenAI API Configuration
+  // OpenAI API Configuration (compatibilidade)
   getOpenAIApiKey() {
     return api.get('/admin/settings/openai-api');
   },
@@ -273,9 +276,40 @@ export const adminAPI = {
     return api.put('/admin/settings/openai-api', data);
   },
   
+  // API Keys para múltiplos provedores
+  getAllApiKeys() {
+    return api.get('/admin/api-keys');
+  },
+  updateApiKey(provider: string, data: { apiKey: string }) {
+    return api.put(`/admin/api-keys/${provider}`, data);
+  },
+  removeApiKey(provider: string) {
+    return api.delete(`/admin/api-keys/${provider}`);
+  },
+  
   // Token usage
   getTokenUsage: (params: any = {}) => 
     api.get('/admin/tokens/usage', { params }),
+  
+  // AI Configurations
+  getAIConfigurations() {
+    return api.get('/admin/ai-configurations');
+  },
+  getAIConfigurationById(id: string) {
+    return api.get(`/admin/ai-configurations/${id}`);
+  },
+  getAIConfigurationByPageKey(pageKey: string) {
+    return api.get(`/admin/ai-configurations/page/${pageKey}`);
+  },
+  updateAIConfiguration(id: string, data: any) {
+    return api.put(`/admin/ai-configurations/${id}`, data);
+  },
+  createDefaultAIConfigurations() {
+    return api.post('/admin/ai-configurations/defaults');
+  },
+  getAvailableModels() {
+    return api.get('/admin/ai-models');
+  },
 };
 
 export default api;

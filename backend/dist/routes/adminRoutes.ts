@@ -17,6 +17,13 @@ import {
   getTokenUsage
 } from '../controllers/adminController';
 import {
+  getAIConfigurations,
+  getAIConfigurationByPageKey,
+  updateAIConfiguration,
+  createDefaultAIConfigurations,
+  getAvailableModels
+} from '../controllers/aiConfigurationController';
+import {
   getGoogleSpeechConfig,
   updateGoogleSpeechConfig
 } from '../controllers/settingsController';
@@ -65,5 +72,12 @@ router.put('/settings/google-speech', updateGoogleSpeechConfig);
 // OpenAI API Key
 router.get('/settings/openai-api', getOpenAIApiKey);
 router.put('/settings/openai-api', updateOpenAIApiKey);
+
+// AI Configurations
+router.get('/ai-configurations', getAIConfigurations);
+router.get('/ai-configurations/:pageKey', getAIConfigurationByPageKey);
+router.put('/ai-configurations/:pageKey', updateAIConfiguration);
+router.post('/ai-configurations/defaults', createDefaultAIConfigurations);
+router.get('/ai-models', getAvailableModels);
 
 export default router;

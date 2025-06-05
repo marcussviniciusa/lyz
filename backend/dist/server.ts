@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes';
 import planRoutes from './routes/planRoutes';
 import adminRoutes from './routes/adminRoutes';
 import transcriptionRoutes from './routes/transcriptionRoutes';
+import imageAnalysisRoutes from './routes/imageAnalysisRoutes';
 import fs from 'fs';
 import path from 'path';
 
@@ -31,8 +32,8 @@ app.use(cors({
 // Express não suporta corretamente app.options('*', ...) 
 // em algumas versões, então vamos remover essa linha
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -51,6 +52,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/plans', planRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', transcriptionRoutes);
+app.use('/api/images', imageAnalysisRoutes);
 
 // Health check endpoint
 // Rota na raiz para testar o acesso direto

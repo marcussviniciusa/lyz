@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Formik, Form, Field, ErrorMessage } from 'formik';
 import * as Yup from 'yup';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,14 +14,20 @@ const LoginSchema = Yup.object().shape({
 
 const LoginForm: React.FC = () => {
   const { login, loading, error } = useAuth();
-  const [serverError, setServerError] = useState<string | null>(error);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  // Update server error when auth error changes
+  useEffect(() => {
+    setServerError(error);
+  }, [error]);
 
   const handleSubmit = async (values: { email: string; password: string }) => {
     setServerError(null);
     try {
       await login(values.email, values.password);
     } catch (err: any) {
-      setServerError(err.message || 'Falha no login. Tente novamente.');
+      // O erro já será capturado pelo contexto de autenticação
+      // Não precisamos fazer nada aqui, o useEffect vai atualizar serverError
     }
   };
 
@@ -63,8 +69,8 @@ const LoginForm: React.FC = () => {
               </div>
 
               {serverError && (
-                <div className="bg-red-50 p-3 rounded-md">
-                  <p className="text-red-600 text-sm">{serverError}</p>
+                <div className="bg-red-50 border border-red-200 p-3 rounded-md">
+                  <p className="text-red-600 text-sm font-medium">{serverError}</p>
                 </div>
               )}
 
@@ -78,8 +84,15 @@ const LoginForm: React.FC = () => {
                 </button>
               </div>
 
-              <div className="text-center text-sm">
-                <p className="text-gray-600">
+              <div className="text-center space-y-2">
+                <Link 
+                  href="/auth/forgot-password" 
+                  className="block text-sm text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  Esqueci minha senha
+                </Link>
+                
+                <p className="text-gray-600 text-sm">
                   Não possui conta?{' '}
                   <Link href="/auth/register" className="text-primary-600 hover:text-primary-700 font-medium">
                     Registre-se

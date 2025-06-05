@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { PatientPlan, Setting, Prompt, TokenUsage, AIConfiguration } from '../models';
+import { PatientPlan, Setting, Prompt, TokenUsage } from '../models';
 import { generateAIResponse, analyzeImage, getOpenAI } from '../services/ai/openaiService';
-import { UnifiedAIService } from '../services/ai/unifiedAIService';
 import { extractTextFromPDF, extractTextFromBase64PDF } from '../services/pdf/pdfService';
 import { calculateCost } from '../utils/tokenCalculator';
 
@@ -325,7 +324,7 @@ Texto dos resultados laboratoriais:
 ${truncatedText}`;
         
         // Identificar token usage
-        const aiConfig = await AIConfiguration.findOne({ where: { page_key: 'lab_analysis' } });
+        const prompt = await Prompt.findOne({ where: { step_key: 'lab_results_analysis' } });
         
         // Obter instância do OpenAI já configurada
         const openai = await getOpenAI();
@@ -343,7 +342,7 @@ ${truncatedText}`;
             role: "user",
             content: promptTemplate
           }],
-          temperature: aiConfig ? aiConfig.temperature || 0.7 : 0.7,
+          temperature: prompt ? prompt.temperature || 0.7 : 0.7,
           max_tokens: MAX_TOKENS
           // Removendo o parâmetro response_format que não é suportado pelo modelo
         });
@@ -352,11 +351,11 @@ ${truncatedText}`;
         const responseContent = chatCompletion.choices[0].message.content;
         
         // Registrar uso de tokens
-        if (aiConfig) {
+        if (prompt) {
           await TokenUsage.create({
             user_id: userId,
             company_id: companyId,
-            prompt_id: aiConfig.id,
+            prompt_id: prompt.id,
             tokens_used: chatCompletion.usage?.total_tokens || 0,
             cost: calculateCost(chatCompletion.usage?.total_tokens || 0, 'gpt-4'),
             timestamp: new Date()
@@ -1066,7 +1065,7 @@ export const analyzeTCMData = async (
     const openai = await getOpenAI();
     
     // Identificar token usage
-    const aiConfig = await AIConfiguration.findOne({ where: { page_key: 'tcm_analysis' } });
+    const prompt = await Prompt.findOne({ where: { step_key: 'tcm_analysis' } });
     const startTime = new Date();
 
     // Criar prompt para envio ao OpenAI
@@ -1130,8 +1129,8 @@ export const analyzeTCMData = async (
         role: "user",
         content: userPrompt
       }],
-      temperature: aiConfig ? aiConfig.temperature || 0.7 : 0.7,
-      max_tokens: aiConfig ? aiConfig.max_tokens || 1000 : 1000
+      temperature: prompt ? prompt.temperature || 0.7 : 0.7,
+      max_tokens: prompt ? prompt.max_tokens || 1000 : 1000
       // Removido o response_format para compatibilidade
     });
     
@@ -1139,13 +1138,13 @@ export const analyzeTCMData = async (
     const responseContent = chatCompletion.choices[0].message.content;
     console.log('Resposta bruta da API OpenAI:', responseContent?.substring(0, 200) + '...');
     
-    // Registrar uso de tokens, se a configuração de AI existir
-    if (aiConfig) {
+    // Registrar uso de tokens, se a configuração de prompt existir
+    if (prompt) {
       try {
         await TokenUsage.create({
           user_id: userId, // ID do usuário passado como parâmetro
           company_id: companyId, // ID da empresa passado como parâmetro
-          prompt_id: aiConfig.id,
+          prompt_id: prompt.id,
           tokens_used: chatCompletion.usage?.total_tokens || 0,
           cost: calculateCost(chatCompletion.usage?.total_tokens || 0, 'gpt-3.5-turbo'),
           timestamp: new Date()

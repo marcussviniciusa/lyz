@@ -12,7 +12,7 @@ import { User, Company } from '../models';
 
 // Validate email with Curseduca API
 export const validateEmail = async (req: Request, res: Response) => {
-  const { email } = req.query;
+  const { email, purpose } = req.query; // Adicionar parâmetro purpose
   
   if (!email) {
     return res.status(400).json({ message: 'Email is required' });
@@ -25,8 +25,14 @@ export const validateEmail = async (req: Request, res: Response) => {
       // Check if user already exists in our system
       const existingUser = await getUserByEmail(email as string);
       
-      if (existingUser) {
+      // For registration: user should NOT exist
+      if (purpose !== 'reset-password' && existingUser) {
         return res.status(409).json({ message: 'User already registered in Lyz' });
+      }
+      
+      // For password reset: user MUST exist
+      if (purpose === 'reset-password' && !existingUser) {
+        return res.status(404).json({ message: 'User not found in Lyz system. Please register first.' });
       }
       
       return res.status(200).json({
@@ -215,6 +221,48 @@ export const refreshToken = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error refreshing token:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// Reset password
+export const resetPassword = async (req: Request, res: Response) => {
+  const { email, newPassword, cursEducaData } = req.body;
+  
+  if (!email || !newPassword) {
+    return res.status(400).json({ message: 'Email and new password are required' });
+  }
+  
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+  }
+  
+  try {
+    // First validate that the email exists in Curseduca
+    const validationResult = await validateCursEducaUser(email);
+    
+    if (!validationResult.success) {
+      return res.status(404).json({ message: 'Email not found in Curseduca system' });
+    }
+    
+    // Find user in our system
+    const user = await getUserByEmail(email);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        message: 'User not found in Lyz system. Please register first.' 
+      });
+    }
+    
+    // Update user password
+    user.password = newPassword; // The model should hash this automatically
+    await user.save();
+    
+    return res.status(200).json({
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Error resetting password:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

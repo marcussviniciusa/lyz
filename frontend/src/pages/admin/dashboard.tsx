@@ -174,6 +174,11 @@ const AdminDashboardPage: React.FC = () => {
                       <h3 className="text-lg font-semibold text-gray-800 mb-2">Gerenciar Prompts</h3>
                       <p className="text-gray-600">Editar prompts usados na geração de planos</p>
                     </Link>
+                    
+                    <Link href="/admin/ai-configurations" className="block p-6 bg-white rounded-lg shadow hover:shadow-md transition-shadow">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-2">Configurações de IA</h3>
+                      <p className="text-gray-600">Gerenciar modelos, prompts e temperatura para cada página</p>
+                    </Link>
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mb-6">
@@ -183,8 +188,8 @@ const AdminDashboardPage: React.FC = () => {
                     </Link>
                     
                     <Link href="/admin/openai-config" className="block p-6 bg-white rounded-lg shadow hover:shadow-md transition-shadow">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-2">Configurar OpenAI</h3>
-                      <p className="text-gray-600">Configurar chave da API da OpenAI para geração de planos</p>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-2">Configurar APIs</h3>
+                      <p className="text-gray-600">Configurar chaves das APIs (OpenAI, Google, Anthropic)</p>
                     </Link>
                   </div>
                   <Link href="/admin/tokens/usage" className="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">

@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
-import { Prompt, TokenUsage, User, Company, Setting } from '../../models';
+import { Prompt, TokenUsage, User, Company, Setting, AIConfiguration } from '../../models';
 import fs from 'fs';
 import sharp from 'sharp';
 import { PDFDocument } from 'pdf-lib';
@@ -63,7 +63,23 @@ const modelPricing = {
   'gpt-4o': { input: 0.005, output: 0.015 }         // Modelo mais recente que tambem suporta visão
 };
 
-// Get prompt by step key
+// Get AI configuration by page key  
+export const getAIConfigByPageKey = async (pageKey: string) => {
+  try {
+    const aiConfig = await AIConfiguration.findOne({ where: { page_key: pageKey } });
+    
+    if (!aiConfig) {
+      throw new Error(`AI Configuration not found for page: ${pageKey}`);
+    }
+    
+    return aiConfig;
+  } catch (error) {
+    console.error('Error fetching AI configuration:', error);
+    throw error;
+  }
+};
+
+// Get prompt by step key (deprecated - use getAIConfigByPageKey instead)
 export const getPromptByStepKey = async (stepKey: string) => {
   try {
     const prompt = await Prompt.findOne({ where: { step_key: stepKey } });
@@ -321,46 +337,88 @@ export const generateAIResponse = async (
       };
     }
     
-    // Get prompt for the step
-    const promptTemplate = await getPromptByStepKey(stepKey);
+    // Get AI configuration for the step - try new system first, fallback to old
+    let aiConfig: any = null;
+    let promptContent: string = '';
+    let temperature: number = 0.7;
+    let maxTokens: number = 2000;
+    let configId: number = 0;
+    let selectedModel: string = model;
+    
+    try {
+      // Map stepKey to pageKey for new AI Configuration system
+      const pageKeyMap: { [key: string]: string } = {
+        'lab_results_analysis': 'lab_analysis',
+        'tcm_analysis': 'tcm_analysis',
+        'timeline_generation': 'timeline_generation',
+        'ifm_matrix_generation': 'ifm_matrix',
+        'final_plan': 'final_plan'
+      };
+      
+      const pageKey = pageKeyMap[stepKey] || stepKey;
+      aiConfig = await getAIConfigByPageKey(pageKey);
+      
+      if (aiConfig) {
+        promptContent = aiConfig.prompt;
+        temperature = aiConfig.temperature;
+        maxTokens = aiConfig.max_tokens;
+        configId = aiConfig.id;
+        selectedModel = aiConfig.model || model;
+        console.log(`Using AI Configuration for ${pageKey}`);
+      }
+    } catch (configError) {
+      console.log(`AI Configuration not found for ${stepKey}, falling back to legacy prompt system`);
+      
+      // Fallback to legacy prompt system
+      try {
+        const promptTemplate = await getPromptByStepKey(stepKey);
+        promptContent = promptTemplate.content;
+        temperature = promptTemplate.temperature;
+        maxTokens = promptTemplate.max_tokens;
+        configId = promptTemplate.id;
+        console.log(`Using legacy prompt for ${stepKey}`);
+      } catch (promptError) {
+        throw new Error(`No AI configuration or prompt found for step: ${stepKey}`);
+      }
+    }
     
     // Truncar dados se necessário para evitar exceder limites de contexto
     const truncatedData = truncateInputData(inputData);
     
     // Estimar o tamanho do prompt + dados truncados (aproximação)
-    const promptSize = promptTemplate.content.length / 4;
+    const promptSize = promptContent.length / 4;
     const dataSize = JSON.stringify(truncatedData).length / 4;
     const totalSize = promptSize + dataSize;
     
-    // Selecionar modelo apropriado
-    const selectedModel = selectAppropriateModel(totalSize, model);
-    if (selectedModel !== model) {
-      console.log(`Switched model from ${model} to ${selectedModel} due to context size`);
+    // Selecionar modelo apropriado baseado no tamanho dos dados
+    const finalModel = selectAppropriateModel(totalSize, selectedModel);
+    if (finalModel !== selectedModel) {
+      console.log(`Switched model from ${selectedModel} to ${finalModel} due to context size`);
     }
     
     // Prepare messages
     const messages = [
-      { role: 'system' as const, content: systemInstruction || promptTemplate.content },
+      { role: 'system' as const, content: systemInstruction || promptContent },
       { role: 'user' as const, content: JSON.stringify(truncatedData) }
     ];
     
-    // Registrar qual instrução está sendo usada para debug
-    console.log(`Utilizando ${systemInstruction ? 'instrução personalizada' : 'template de prompt'} para ${stepKey}`);
+    // Registrar qual sistema está sendo usado para debug
+    console.log(`Utilizando ${systemInstruction ? 'instrução personalizada' : (aiConfig ? 'AI Configuration' : 'prompt legado')} para ${stepKey}`);
     
     // Obter instância atualizada do OpenAI
     const openai = await getOpenAI();
     
     // Make API call to OpenAI
     const response = await openai.chat.completions.create({
-      model: selectedModel,
+      model: finalModel,
       messages,
-      temperature: promptTemplate.temperature,
-      max_tokens: promptTemplate.max_tokens,
+      temperature,
+      max_tokens: maxTokens,
     });
     
     // Record token usage
     const tokensUsed = response.usage?.total_tokens || 0;
-    await recordTokenUsage(userId, companyId, promptTemplate.id, tokensUsed, selectedModel);
+    await recordTokenUsage(userId, companyId, configId, tokensUsed, finalModel);
     
     return {
       success: true,
@@ -601,12 +659,123 @@ export const analyzeImage = async (
       throw new Error('Formato de imagem inválido. Deve ser um Buffer ou uma string.');
     }
     
-    // Usar o modelo correto que suporta visão
-    const visionModel = 'gpt-4o'; // Modelo mais recente com suporte a visão
+      // Prompt melhorado para resultados laboratoriais
+  let adjustedPrompt = prompt;
+  if (structured) {
+    // Para resultados de laboratório, usar um prompt mais específico e detalhado
+    if (prompt.includes('laboratoriais') || prompt.includes('exames')) {
+      adjustedPrompt = `Você é um especialista em interpretação de exames laboratoriais. Analise cuidadosamente esta imagem de resultado de exame laboratorial. 
+
+Sua tarefa é:
+1. Identificar cada um dos testes presentes na imagem
+2. Extrair com precisão os valores numéricos de cada teste
+3. Capturar as unidades de medida (mg/dL, g/L, etc.)
+4. Identificar os valores de referência para cada teste
+5. Determinar quais valores estão fora da referência normal
+6. Fornecer uma interpretação clínica breve para cada resultado anormal
+
+IMPORTANTE: Retorne sua resposta APENAS como um objeto JSON válido com a seguinte estrutura:
+{
+  "summary": "Resumo geral dos resultados laboratoriais",
+  "outOfRange": [
+    {
+      "name": "Nome do teste",
+      "value": "Valor encontrado",
+      "unit": "Unidade",
+      "reference": "Valor de referência",
+      "interpretation": "Interpretação clínica"
+    }
+  ],
+  "recommendations": ["Recomendação 1", "Recomendação 2"]
+}
+
+Se não conseguir identificar os valores específicos, indique isso claramente no summary.
+${prompt}`;
+    }
+  }
+
+  // Verificar se deve usar Gemini ou OpenAI baseado na configuração
+  let aiConfig;
+  let visionModel = 'gpt-4o'; // Modelo padrão OpenAI que suporta visão
+  let temperature = 0.3;
+  let maxTokens = 2000;
+  let useGemini = false;
+  
+  try {
+    aiConfig = await getAIConfigByPageKey('lab_analysis');
+    if (aiConfig && aiConfig.is_active) {
+      const configModel = aiConfig.model;
+      
+      // Verificar se é um modelo Gemini
+      if (configModel.toLowerCase().includes('gemini')) {
+        useGemini = true;
+        console.log(`Modelo Gemini detectado: ${configModel}. Usando API Gemini.`);
+        
+        // Importar e usar o GeminiService
+        const { GeminiService } = await import('./geminiService');
+        const Setting = (await import('../../models/Setting')).default;
+        
+        // Buscar chave da API do Gemini
+        const geminiSetting = await Setting.findOne({ where: { key: 'gemini_api_key' } });
+        const geminiApiKey = geminiSetting?.value;
+        
+        if (!geminiApiKey) {
+          throw new Error('Chave da API do Gemini não configurada. Configure em /admin/settings.');
+        }
+        
+        // Criar instância do GeminiService
+        const geminiService = new GeminiService(geminiApiKey);
+        
+        // Usar o Gemini para analisar a imagem
+        const geminiResponse = await geminiService.analyzeImage(
+          imageUrl, 
+          aiConfig.prompt || adjustedPrompt, 
+          aiConfig, 
+          structured
+        );
+        
+        console.log('Análise de imagem bem-sucedida com Gemini');
+        
+        // Registrar uso de tokens (estimativa para Gemini)
+        const estimatedTokens = await geminiService.countTokens(
+          `${aiConfig.prompt || adjustedPrompt} [imagem analisada]`, 
+          configModel
+        );
+        
+        await recordTokenUsage(userId, companyId, 1, estimatedTokens, configModel);
+        
+        // Retornar no formato JSON esperado
+        return JSON.stringify(geminiResponse);
+      } else {
+        // Lista de modelos OpenAI que suportam visão
+        const visionModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4-vision-preview'];
+        
+        if (visionModels.includes(configModel)) {
+          visionModel = configModel;
+        } else {
+          console.log(`Modelo configurado (${configModel}) não suporta visão. Usando ${visionModel}.`);
+        }
+      }
+      
+      temperature = aiConfig.temperature || 0.3;
+      maxTokens = aiConfig.max_tokens || 2000;
+      console.log(`Usando AI Configuration para lab_analysis: modelo=${visionModel}, temperatura=${temperature}, max_tokens=${maxTokens}`);
+    } else {
+      console.log('AI Configuration não encontrada ou inativa para lab_analysis. Usando configurações padrão.');
+    }
+  } catch (configError) {
+    console.error('Erro ao carregar AI Configuration:', configError);
+    console.log('Usando configurações padrão para análise de imagem.');
+  }
+  
+  // Se chegou até aqui, usar OpenAI (fallback)
     
-    // Prompt melhorado para resultados laboratoriais
-    let adjustedPrompt = prompt;
-    if (structured) {
+    // Se temos AI Config com prompt personalizado, usar ele
+    if (aiConfig && aiConfig.prompt && structured && 
+        (prompt.includes('laboratoriais') || prompt.includes('exames'))) {
+      adjustedPrompt = aiConfig.prompt;
+      console.log('Usando prompt personalizado da AI Configuration');
+    } else if (structured) {
       // Para resultados de laboratório, usar um prompt mais específico e detalhado
       if (prompt.includes('laboratoriais') || prompt.includes('exames')) {
         adjustedPrompt = `Você é um especialista em interpretação de exames laboratoriais. Analise cuidadosamente esta imagem de resultado de exame laboratorial. 
@@ -646,6 +815,7 @@ Importante: Retorne os resultados em formato JSON com a seguinte estrutura:
     }
     
     console.log('Enviando imagem para análise com o modelo:', visionModel);
+    console.log(`Configurações: temperatura=${temperature}, max_tokens=${maxTokens}`);
     console.log('Tipo de imagem processada:', imageUrl.startsWith('data:') ? imageUrl.substring(0, 30) + '...' : imageUrl);
     
     // Criar a requisição para o modelo de visão
@@ -666,8 +836,8 @@ Importante: Retorne os resultados em formato JSON com a seguinte estrutura:
           ]
         }
       ],
-      max_tokens: 2000,  // Aumentado para acomodar respostas estruturadas JSON detalhadas
-      temperature: 0.3,  // Temperatura mais baixa para respostas mais determinísticas
+      max_tokens: maxTokens,
+      temperature: temperature,
       response_format: structured ? { type: "json_object" } : undefined
     });
     
@@ -810,12 +980,46 @@ async function analyzePdfText(
     updateProgress(0, 1, 'Iniciando análise de documento com texto extenso');
   }
   
-  // Usar o modelo correto que suporta visão
-  const visionModel = 'gpt-4o'; // Modelo mais recente com suporte a visão
+  // Obter configurações da AI Configuration para lab_analysis
+  let aiConfig;
+  let visionModel = 'gpt-4o'; // Modelo padrão que suporta visão
+  let temperature = 0.3;
+  let maxTokens = 2000;
+  
+  try {
+    aiConfig = await getAIConfigByPageKey('lab_analysis');
+    if (aiConfig && aiConfig.is_active) {
+      // Usar configurações da AI Configuration, mas garantir que o modelo suporte visão
+      const configModel = aiConfig.model;
+      // Lista de modelos que suportam visão
+      const visionModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4-vision-preview'];
+      
+      if (visionModels.includes(configModel)) {
+        visionModel = configModel;
+      } else {
+        console.log(`Modelo configurado (${configModel}) não suporta visão. Usando ${visionModel}.`);
+      }
+      
+      temperature = aiConfig.temperature || 0.3;
+      maxTokens = aiConfig.max_tokens || 2000;
+      console.log(`Usando AI Configuration para lab_analysis (PDF): modelo=${visionModel}, temperatura=${temperature}, max_tokens=${maxTokens}`);
+    } else {
+      console.log('AI Configuration não encontrada ou inativa para lab_analysis. Usando configurações padrão.');
+    }
+  } catch (configError) {
+    console.error('Erro ao carregar AI Configuration:', configError);
+    console.log('Usando configurações padrão para análise de PDF.');
+  }
   
   // Prompt melhorado para resultados laboratoriais
   let adjustedPrompt = prompt;
-  if (structured) {
+  
+  // Se temos AI Config com prompt personalizado, usar ele
+  if (aiConfig && aiConfig.prompt && structured && 
+      (prompt.includes('laboratoriais') || prompt.includes('exames'))) {
+    adjustedPrompt = aiConfig.prompt;
+    console.log('Usando prompt personalizado da AI Configuration para PDF');
+  } else if (structured) {
     // Para resultados de laboratório, usar um prompt mais específico e detalhado
     if (prompt.includes('laboratoriais') || prompt.includes('exames')) {
       adjustedPrompt = `Você é um especialista em interpretação de exames laboratoriais. Analise cuidadosamente este texto de resultado de exame laboratorial. 
@@ -857,6 +1061,8 @@ Importante: Retorne os resultados em formato JSON com a seguinte estrutura:
   // Obter instância atualizada do OpenAI
   const openai = await getOpenAI();
   
+  console.log(`Analisando texto PDF com modelo: ${visionModel}, temperatura: ${temperature}, max_tokens: ${maxTokens}`);
+  
   // Criar a requisição para o modelo de visão
   const response = await openai.chat.completions.create({
     model: visionModel,
@@ -872,8 +1078,8 @@ Importante: Retorne os resultados em formato JSON com a seguinte estrutura:
         ]
       }
     ],
-    max_tokens: 2000,  // Aumentado para acomodar respostas estruturadas JSON detalhadas
-    temperature: 0.3,  // Temperatura mais baixa para respostas mais determinísticas
+    max_tokens: maxTokens,
+    temperature: temperature,
     response_format: structured ? { type: "json_object" } : undefined
   });
   

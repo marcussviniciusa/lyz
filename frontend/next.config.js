@@ -1,13 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Configurações para exportação estática
-  output: 'export',
+  // Configurações para desenvolvimento
   distDir: '.next',
   images: {
-    unoptimized: true, // Necessário para exportação estática
+    // Para desenvolvimento local, não precisamos otimização
+    unoptimized: process.env.NODE_ENV === 'production',
   },
-  trailingSlash: true, // Ajuda na navegação estática
   // Configuração de diretório de páginas
   pageExtensions: ['js', 'jsx', 'ts', 'tsx', 'md', 'mdx'],
   // A telemetria é desabilitada via variável de ambiente no Dockerfile

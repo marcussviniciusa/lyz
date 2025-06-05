@@ -33,7 +33,14 @@ type PlanData = {
     gender?: string;
   };
   lab_results?: {
-    file_url: string;
+    file_url?: string;
+    files?: Array<{
+      fileUrl: string;
+      fileName: string;
+      fileType: string;
+      originalName: string;
+      uploadedAt: string;
+    }>;
     notes: string;
     analyzed_data?: any;
   };
@@ -53,8 +60,9 @@ const LabResultsPage: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null); // Mantendo para compatibilidade
+  const [currentFileIndex, setCurrentFileIndex] = useState<number>(0);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [isPdf, setIsPdf] = useState<boolean>(false);
@@ -174,12 +182,172 @@ const LabResultsPage: React.FC = () => {
       setPdfRenderMode('react-pdf');
     }
   }, [pdfRenderMode]);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   
   // Variável para controlar se uma análise global já está em andamento
   const [isGlobalAnalysisRunning, setIsGlobalAnalysisRunning] = useState(false);
+
+  // Função para navegar entre arquivos selecionados
+  const navigateToFile = (index: number) => {
+    if (index >= 0 && index < selectedFiles.length) {
+      setCurrentFileIndex(index);
+      const file = selectedFiles[index];
+      setSelectedFile(file);
+      setIsPdf(file.type === 'application/pdf');
+      setPageNumber(1);
+      setNumPages(null);
+      
+      // Usar URL existente ou criar nova
+      if (previewUrls[index]) {
+        // URL já existe, usar diretamente
+      } else {
+        // Criar nova URL para este arquivo
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const newUrls = [...previewUrls];
+          newUrls[index] = reader.result as string;
+          setPreviewUrls(newUrls);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  // Função para remover um arquivo específico
+  const removeFile = (index: number) => {
+    const newFiles = selectedFiles.filter((_, i) => i !== index);
+    const newUrls = previewUrls.filter((_, i) => i !== index);
+    
+    setSelectedFiles(newFiles);
+    setPreviewUrls(newUrls);
+    
+    // Ajustar índice atual se necessário
+    if (currentFileIndex >= newFiles.length) {
+      const newIndex = Math.max(0, newFiles.length - 1);
+      setCurrentFileIndex(newIndex);
+      if (newFiles.length > 0) {
+        navigateToFile(newIndex);
+      } else {
+        setSelectedFile(null);
+        setIsPdf(false);
+      }
+    } else if (currentFileIndex === index && newFiles.length > 0) {
+      // Se removemos o arquivo atual, ir para o próximo ou anterior
+      const newIndex = Math.min(currentFileIndex, newFiles.length - 1);
+      navigateToFile(newIndex);
+    }
+    
+    if (newFiles.length === 0) {
+      setSuccessMessage(null);
+    } else {
+      setSuccessMessage(`${newFiles.length} arquivo${newFiles.length > 1 ? 's' : ''} selecionado${newFiles.length > 1 ? 's' : ''} para upload`);
+    }
+  };
+
+  // Funções para drag & drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      // Para drag & drop, substituir arquivos anteriores
+      setSelectedFiles([]);
+      setPreviewUrls([]);
+      setCurrentFileIndex(0);
+      processNewFiles(droppedFiles);
+    }
+  };
+
+  // Função para processar arquivos (comum para input e drag & drop)
+  const processFiles = (files: File[]) => {
+    const validFiles: File[] = [];
+    let hasError = false;
+    
+    // Verificar cada arquivo
+    for (const file of files) {
+      // Verificar o tipo do arquivo
+      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+        setError('Por favor, selecione apenas arquivos PDF, JPEG ou PNG');
+        hasError = true;
+        break;
+      }
+      
+      // Verificar o tamanho do arquivo
+      if (file.size > 5 * 1024 * 1024) { // 5MB
+        setError(`O arquivo ${file.name} excede o tamanho máximo de 5MB`);
+        hasError = true;
+        break;
+      }
+      
+      validFiles.push(file);
+    }
+    
+    if (hasError) {
+      return;
+    }
+    
+    // Adicionar aos arquivos existentes se houver
+    const allFiles = [...selectedFiles, ...validFiles];
+    setSelectedFiles(allFiles);
+    setCurrentFileIndex(selectedFiles.length); // Vai para o primeiro arquivo novo
+    
+    if (allFiles.length > 0) {
+      setSelectedFile(allFiles[selectedFiles.length]); // Arquivo recém adicionado
+    }
+    
+    setError(null);
+    
+    // Criar URLs de preview para os novos arquivos
+    const newPreviewUrls = [...previewUrls];
+    let processedCount = 0;
+    
+    validFiles.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        newPreviewUrls[selectedFiles.length + index] = reader.result as string;
+        processedCount++;
+        
+        // Quando todos os novos arquivos foram processados
+        if (processedCount === validFiles.length) {
+          setPreviewUrls(newPreviewUrls);
+          
+          // Configurar o primeiro arquivo novo como ativo
+          if (validFiles.length > 0) {
+            const newActiveFile = validFiles[0];
+            setIsPdf(newActiveFile.type === 'application/pdf');
+            setPageNumber(1);
+            setNumPages(null);
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    // Mostrar informação sobre arquivos adicionados
+    if (allFiles.length > 1) {
+      setSuccessMessage(`${allFiles.length} arquivos selecionados para upload (${validFiles.length} novos)`);
+    } else if (allFiles.length === 1) {
+      setSuccessMessage(`1 arquivo selecionado para upload`);
+    }
+  };
 
   // Função para analisar os resultados laboratoriais
   const analyzeResults = async () => {
@@ -200,7 +368,7 @@ const LabResultsPage: React.FC = () => {
       setIsGlobalAnalysisRunning(true);
       
       // Preparando os dados para análise
-      const fileUrl = previewUrl || plan?.lab_results?.file_url;
+      const fileUrl = previewUrls[currentFileIndex] || plan?.lab_results?.file_url;
       const notesText = notes || plan?.lab_results?.notes || '';
       
       // Se não houver arquivo nem texto para analisar, lançar um erro
@@ -257,7 +425,7 @@ const LabResultsPage: React.FC = () => {
     
     // Preparar o payload para salvar
     const analysisPayload = {
-      file_url: plan.lab_results?.file_url || previewUrl || '',
+      file_url: plan.lab_results?.file_url || previewUrls[currentFileIndex] || '',
       notes: notes || plan.lab_results?.notes || '',
       analyzed_data: validatedData
     };
@@ -358,16 +526,21 @@ const LabResultsPage: React.FC = () => {
           setNotes(planData.lab_results.notes);
         }
         
-        // Verificar se existe arquivo e se é um PDF
-        if (planData?.lab_results?.file_url) {
+        // Verificar se existem arquivos já enviados
+        if (planData?.lab_results?.files && planData.lab_results.files.length > 0) {
+          console.log('Arquivos existentes encontrados:', planData.lab_results.files);
+          // Não precisamos recriar URLs de preview para arquivos já enviados
+          // Eles já têm suas URLs no servidor
+        } else if (planData?.lab_results?.file_url) {
+          // Compatibilidade com sistema antigo (arquivo único)
           const fileUrl = planData.lab_results.file_url.toLowerCase();
           setIsPdf(fileUrl.endsWith('.pdf') || fileUrl.includes('application/pdf'));
-          
-          // Verificar e definir o estado de análise completa
-          if (planData.lab_results.analyzed_data) {
-            setAnalysisComplete(true);
-            console.log('Dados de análise carregados do backend:', planData.lab_results.analyzed_data);
-          }
+        }
+        
+        // Verificar e definir o estado de análise completa
+        if (planData?.lab_results?.analyzed_data) {
+          setAnalysisComplete(true);
+          console.log('Dados de análise carregados do backend:', planData.lab_results.analyzed_data);
         }
         
         setError(null);
@@ -392,60 +565,83 @@ const LabResultsPage: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
-      const validFiles: File[] = [];
-      let hasError = false;
       
-      // Verificar cada arquivo
-      for (const file of files) {
-        // Verificar o tipo do arquivo
-        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
-          setError('Por favor, selecione apenas arquivos PDF, JPEG ou PNG');
-          hasError = true;
-          break;
-        }
-        
-        // Verificar o tamanho do arquivo
-        if (file.size > 5 * 1024 * 1024) { // 5MB
-          setError(`O arquivo ${file.name} excede o tamanho máximo de 5MB`);
-          hasError = true;
-          break;
-        }
-        
-        validFiles.push(file);
+      // Limpar seleção anterior quando há novo upload via input
+      setSelectedFiles([]);
+      setPreviewUrls([]);
+      setCurrentFileIndex(0);
+      
+      processNewFiles(files);
+    }
+  };
+
+  // Função para processar arquivos novos (substituindo seleção anterior)
+  const processNewFiles = (files: File[]) => {
+    const validFiles: File[] = [];
+    let hasError = false;
+    
+    // Verificar cada arquivo
+    for (const file of files) {
+      // Verificar o tipo do arquivo
+      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+        setError('Por favor, selecione apenas arquivos PDF, JPEG ou PNG');
+        hasError = true;
+        break;
       }
       
-      if (hasError) {
-        return;
+      // Verificar o tamanho do arquivo
+      if (file.size > 5 * 1024 * 1024) { // 5MB
+        setError(`O arquivo ${file.name} excede o tamanho máximo de 5MB`);
+        hasError = true;
+        break;
       }
       
-      setSelectedFiles(validFiles);
-      
-      // Manter compatibilidade com o código existente
-      if (validFiles.length > 0) {
-        setSelectedFile(validFiles[0]);
-      }
-      
-      setError(null);
-      
-      // Usar o primeiro arquivo para preview
-      const firstFile = validFiles[0];
-      
-      // Verificar se é um PDF
-      setIsPdf(firstFile.type === 'application/pdf');
-      setPageNumber(1); // Resetar para a primeira página
-      setNumPages(null); // Resetar número de páginas
-      
-      // Criar URL para preview
+      validFiles.push(file);
+    }
+    
+    if (hasError) {
+      return;
+    }
+    
+    setSelectedFiles(validFiles);
+    setCurrentFileIndex(0);
+    
+    // Manter compatibilidade com o código existente
+    if (validFiles.length > 0) {
+      setSelectedFile(validFiles[0]);
+    }
+    
+    setError(null);
+    
+    // Criar URLs de preview para todos os arquivos
+    const newPreviewUrls: string[] = [];
+    let processedCount = 0;
+    
+    validFiles.forEach((file, index) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPreviewUrl(reader.result as string);
+        newPreviewUrls[index] = reader.result as string;
+        processedCount++;
+        
+        // Quando todos os arquivos foram processados
+        if (processedCount === validFiles.length) {
+          setPreviewUrls(newPreviewUrls);
+          
+          // Configurar o primeiro arquivo como ativo
+          const firstFile = validFiles[0];
+          setIsPdf(firstFile.type === 'application/pdf');
+          setPageNumber(1);
+          setNumPages(null);
+        }
       };
-      reader.readAsDataURL(firstFile);
-      
-      // Mostrar informação sobre múltiplos arquivos
-      if (validFiles.length > 1) {
-        setSuccessMessage(`${validFiles.length} arquivos selecionados para upload`);
-      }
+      reader.readAsDataURL(file);
+    });
+    
+    // Mostrar informação sobre múltiplos arquivos
+    if (validFiles.length > 1) {
+      setSuccessMessage(`${validFiles.length} arquivos selecionados para upload`);
+    } else if (validFiles.length === 1) {
+      setSuccessMessage(`1 arquivo selecionado para upload`);
     }
   };
 
@@ -588,7 +784,16 @@ const LabResultsPage: React.FC = () => {
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Arquivo de Resultados</h2>
-                <div className="flex flex-col items-center p-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+                <div 
+                  className={`flex flex-col items-center p-6 border-2 border-dashed rounded-lg transition-colors ${
+                    isDragOver 
+                      ? 'border-primary-500 bg-primary-50' 
+                      : 'border-gray-300 bg-gray-50'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -598,222 +803,385 @@ const LabResultsPage: React.FC = () => {
                     multiple
                   />
                   
-                  {plan?.lab_results?.file_url ? (
+                  {(plan?.lab_results?.files && plan.lab_results.files.length > 0) || plan?.lab_results?.file_url ? (
                     <div className="text-center">
                       <div className="mb-4">
                         <svg className="mx-auto h-12 w-12 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         <p className="mt-1 text-sm text-gray-500">
-                          Arquivo já enviado
+                          {plan?.lab_results?.files && plan.lab_results.files.length > 1 
+                            ? `${plan.lab_results.files.length} arquivos já enviados` 
+                            : 'Arquivo já enviado'}
                         </p>
                       </div>
-                      <a 
-                        href={plan.lab_results.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-outline text-sm"
-                      >
-                        Visualizar Arquivo
-                      </a>
+                      
+                      {/* Exibir lista de arquivos já enviados */}
+                      {plan?.lab_results?.files && plan.lab_results.files.length > 0 ? (
+                        <div className="mb-4">
+                          <div className="flex flex-wrap gap-2 justify-center">
+                            {plan.lab_results.files.map((file, index) => (
+                              <div key={index} className="flex items-center px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                                {file.fileType === 'application/pdf' ? (
+                                  <svg className="w-4 h-4 mr-2 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M4 18h12V6l-4-4H4v16zm8-14v4h4l-4-4z"/>
+                                  </svg>
+                                ) : (
+                                  <svg className="w-4 h-4 mr-2 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd"/>
+                                  </svg>
+                                )}
+                                <span className="text-sm text-green-700 truncate max-w-[120px]" title={file.originalName}>
+                                  {file.originalName}
+                                </span>
+                                <a 
+                                  href={file.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ml-2 text-green-600 hover:text-green-800"
+                                  title="Visualizar arquivo"
+                                >
+                                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                                  </svg>
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : plan?.lab_results?.file_url ? (
+                        <div className="mb-4">
+                          <a 
+                            href={plan.lab_results.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-outline text-sm"
+                          >
+                            Visualizar Arquivo
+                          </a>
+                        </div>
+                      ) : null}
+                      
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="ml-2 btn-text text-sm"
-                      >
-                        Substituir
-                      </button>
-                    </div>
-                  ) : previewUrl ? (
-                    <div className="text-center">
-                      <div className="mb-4">
-                        {isPdf ? (
-                          <div className="flex flex-col items-center">
-                            <div className="pdf-viewer-container border rounded-md p-4 bg-gray-50 w-full max-w-md">
-                              {/* Renderizar o PDF com base no modo selecionado */}
-                              {pdfRenderMode === 'react-pdf' && typeof window !== 'undefined' ? (
-                                <>
-                                  <Document
-                                    file={previewUrl}
-                                    onLoadSuccess={(pdf: { numPages: number }) => {
-                                      console.log('PDF carregado com sucesso:', pdf.numPages, 'páginas');
-                                      setNumPages(pdf.numPages);
-                                    }}
-                                    onLoadError={(error: Error | any) => {
-                                      // Verificar se o erro é um objeto vazio (como visto nos logs)
-                                      if (!error || (typeof error === 'object' && Object.keys(error).length === 0)) {
-                                        console.error('Erro vazio ao carregar PDF. Detalhes adicionais:', {
-                                          timestamp: new Date().toISOString(),
-                                          pdfUrl: previewUrl ? previewUrl.substring(0, 100) : 'null',
-                                          workerStatus: checkPdfWorkerStatus(),
-                                          browserInfo: typeof navigator !== 'undefined' ? {
-                                            userAgent: navigator.userAgent,
-                                            platform: navigator.platform
-                                          } : 'Indisponível'
-                                        });
-                                        
-                                        setError('Erro ao carregar o PDF: Worker possivelmente destruído. Alternando para visualização nativa do navegador...');
-                                      } else {
-                                        // Para erros não vazios, capturar detalhes normalmente
-                                        try {
-                                          console.error('Erro ao carregar PDF:', {
-                                            message: error.message || 'Sem mensagem',
-                                            name: error.name || 'Sem nome',
-                                            stack: error.stack || 'Sem stack',
-                                            toString: String(error)
-                                          });
-                                        } catch (e) {
-                                          console.error('Erro ao tentar logar detalhes do erro:', e);
-                                        }
-                                        setError(`Erro ao carregar o PDF: ${error.message || 'Erro desconhecido'}. Tentando modo alternativo...`);
-                                      }
-                                      // Mudar para modo alternativo em caso de erro
-                                      switchPdfRenderMode();
-                                    }}
-                                    options={{
-                                      cMapUrl: 'https://unpkg.com/pdfjs-dist@2.16.105/cmaps/',
-                                      cMapPacked: true,
-                                      standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@2.16.105/standard_fonts'
-                                    }}
-                                    className="pdf-document"
-                                    loading={<div className="text-center py-4">Carregando PDF...</div>}
-                                    error={<div className="text-center py-4 text-red-600">Não foi possível carregar o PDF. Tentando modo alternativo...</div>}
-                                  >
-                                    <Page 
-                                      pageNumber={pageNumber} 
-                                      width={300}
-                                      renderTextLayer={false}
-                                      renderAnnotationLayer={false}
-                                      error={<div className="text-center py-2 text-red-600">Erro ao renderizar página</div>}
-                                      loading={<div className="text-center py-2">Renderizando página...</div>}
-                                    />
-                                  </Document>
-                                </>
-                              ) : pdfRenderMode === 'iframe' ? (
-                                <>
-                                  <div className="text-center mb-2">Visualização alternativa do PDF</div>
-                                  <iframe 
-                                    src={previewUrl}
-                                    className="w-full h-[400px]"
-                                    title="Visualização de PDF"
-                                    onLoad={() => {
-                                      console.log('PDF carregado via iframe');
-                                      // Verificar se o iframe carregou corretamente
-                                      try {
-                                        // Tentar acessar o conteúdo do iframe para confirmar carregamento
-                                        setTimeout(() => {
-                                          const iframeElement = document.querySelector('iframe');
-                                          if (iframeElement) {
-                                            console.log('iframe DOM disponível:', iframeElement.contentDocument ? 'Sim' : 'Não');
-                                          }
-                                        }, 1000);
-                                      } catch (error) {
-                                        console.warn('Não foi possível verificar o conteúdo do iframe:', error);
-                                      }
-                                    }}
-                                    onError={(event) => {
-                                      console.error('Erro ao carregar PDF via iframe:', {
-                                        event: event,
-                                        target: event.target,
-                                        currentTime: new Date().toISOString()
-                                      });
-                                      setError('Falha ao carregar o PDF no modo iframe. Tentando download direto...');
-                                      switchPdfRenderMode();
-                                    }}
-                                  />
-                                </>
-                              ) : (
-                                <>
-                                  <div className="text-center mb-2">Visualização de PDF não disponível</div>
-                                  <div className="text-center py-4">
-                                    <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn-primary">
-                                      Baixar PDF para visualizar
-                                    </a>
-                                    <p className="mt-2 text-sm text-gray-600">Ou tente carregar o arquivo em outro formato (JPG, PNG)</p>
-                                  </div>
-                                </>
-                              )}
-                              {numPages && numPages > 1 && pdfRenderMode === 'react-pdf' && (
-                                <div className="flex justify-between items-center mt-4">
-                                  <button 
-                                    onClick={() => setPageNumber(prev => Math.max(1, prev - 1))}
-                                    disabled={pageNumber <= 1}
-                                    className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
-                                    type="button"
-                                  >
-                                    ← Anterior
-                                  </button>
-                                  <span className="text-sm text-gray-600">
-                                    {pageNumber} de {numPages}
-                                  </span>
-                                  <button 
-                                    onClick={() => setPageNumber(prev => Math.min(numPages, prev + 1))}
-                                    disabled={pageNumber >= numPages}
-                                    className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
-                                    type="button"
-                                  >
-                                    Próxima →
-                                  </button>
-                                </div>
-                              )}
-                              
-                              {/* Botão para alternar modo de visualização do PDF */}
-                              {isPdf && previewUrl && (
-                                <div className="text-center mt-3">
-                                  <button 
-                                    onClick={switchPdfRenderMode} 
-                                    className="text-sm text-blue-600 hover:text-blue-800"
-                                    type="button"
-                                  >
-                                    {pdfRenderMode === 'react-pdf' ? 'Alternar para visualização alternativa' : 
-                                     pdfRenderMode === 'iframe' ? 'Alternar para download direto' : 
-                                     'Retornar para visualização padrão'}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                            <p className="text-sm font-medium text-gray-600 mt-2">PDF com extração automática de texto</p>
-                          </div>
-                        ) : (
-                          <img 
-                            src={previewUrl} 
-                            alt="Preview" 
-                            className="mx-auto h-40 object-contain" 
-                          />
-                        )}
-                        <p className="mt-2 text-sm text-gray-500">
-                          {selectedFile?.name}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedFile(null);
-                          setPreviewUrl(null);
-                        }}
                         className="btn-text text-sm"
                       >
-                        Remover
+                        {plan?.lab_results?.files && plan.lab_results.files.length > 0 
+                          ? 'Enviar Novos Arquivos' 
+                          : 'Substituir'}
                       </button>
                     </div>
+                  ) : previewUrls.length > 0 ? (
+                    <div className="w-full">
+                      {/* Lista de arquivos selecionados */}
+                      <div className="mb-4">
+                        <h3 className="text-sm font-medium text-gray-700 mb-2">
+                          Arquivos Selecionados ({selectedFiles.length})
+                        </h3>
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {selectedFiles.map((file, index) => (
+                            <div
+                              key={index}
+                              className={`flex items-center px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                                index === currentFileIndex
+                                  ? 'border-primary-500 bg-primary-50 text-primary-700'
+                                  : 'border-gray-300 bg-gray-50 text-gray-700 hover:border-gray-400'
+                              }`}
+                              onClick={() => navigateToFile(index)}
+                            >
+                              <div className="flex items-center min-w-0">
+                                {/* Ícone do tipo de arquivo */}
+                                {file.type === 'application/pdf' ? (
+                                  <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M4 18h12V6l-4-4H4v16zm8-14v4h4l-4-4z"/>
+                                  </svg>
+                                ) : (
+                                  <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd"/>
+                                  </svg>
+                                )}
+                                
+                                <span className="text-sm truncate max-w-[120px]" title={file.name}>
+                                  {file.name}
+                                </span>
+                                
+                                <span className="text-xs text-gray-500 ml-2">
+                                  ({(file.size / 1024 / 1024).toFixed(1)}MB)
+                                </span>
+                              </div>
+                              
+                              {/* Botão de remover */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFile(index);
+                                }}
+                                className="ml-2 p-1 text-red-500 hover:text-red-700 flex-shrink-0"
+                                title="Remover arquivo"
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Preview do arquivo atual */}
+                      {selectedFiles.length > 0 && previewUrls[currentFileIndex] && (
+                        <div className="text-center">
+                          <div className="mb-4">
+                            {isPdf ? (
+                              <div className="flex flex-col items-center">
+                                <div className="pdf-viewer-container border rounded-md p-4 bg-gray-50 w-full max-w-md">
+                                  {/* Renderizar o PDF com base no modo selecionado */}
+                                  {pdfRenderMode === 'react-pdf' && typeof window !== 'undefined' ? (
+                                    <>
+                                      <Document
+                                        file={previewUrls[currentFileIndex]}
+                                        onLoadSuccess={(pdf: { numPages: number }) => {
+                                          console.log('PDF carregado com sucesso:', pdf.numPages, 'páginas');
+                                          setNumPages(pdf.numPages);
+                                        }}
+                                        onLoadError={(error: Error | any) => {
+                                          // Verificar se o erro é um objeto vazio (como visto nos logs)
+                                          if (!error || (typeof error === 'object' && Object.keys(error).length === 0)) {
+                                            console.error('Erro vazio ao carregar PDF. Detalhes adicionais:', {
+                                              timestamp: new Date().toISOString(),
+                                              pdfUrl: previewUrls[currentFileIndex] ? previewUrls[currentFileIndex].substring(0, 100) : 'null',
+                                              workerStatus: checkPdfWorkerStatus(),
+                                              browserInfo: typeof navigator !== 'undefined' ? {
+                                                userAgent: navigator.userAgent,
+                                                platform: navigator.platform
+                                              } : 'Indisponível'
+                                            });
+                                            
+                                            setError('Erro ao carregar o PDF: Worker possivelmente destruído. Alternando para visualização nativa do navegador...');
+                                          } else {
+                                            // Para erros não vazios, capturar detalhes normalmente
+                                            try {
+                                              console.error('Erro ao carregar PDF:', {
+                                                message: error.message || 'Sem mensagem',
+                                                name: error.name || 'Sem nome',
+                                                stack: error.stack || 'Sem stack',
+                                                toString: String(error)
+                                              });
+                                            } catch (e) {
+                                              console.error('Erro ao tentar logar detalhes do erro:', e);
+                                            }
+                                            setError(`Erro ao carregar o PDF: ${error.message || 'Erro desconhecido'}. Tentando modo alternativo...`);
+                                          }
+                                          // Mudar para modo alternativo em caso de erro
+                                          switchPdfRenderMode();
+                                        }}
+                                        options={{
+                                          cMapUrl: 'https://unpkg.com/pdfjs-dist@2.16.105/cmaps/',
+                                          cMapPacked: true,
+                                          standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@2.16.105/standard_fonts'
+                                        }}
+                                        className="pdf-document"
+                                        loading={<div className="text-center py-4">Carregando PDF...</div>}
+                                        error={<div className="text-center py-4 text-red-600">Não foi possível carregar o PDF. Tentando modo alternativo...</div>}
+                                      >
+                                        <Page 
+                                          pageNumber={pageNumber} 
+                                          width={300}
+                                          renderTextLayer={false}
+                                          renderAnnotationLayer={false}
+                                          error={<div className="text-center py-2 text-red-600">Erro ao renderizar página</div>}
+                                          loading={<div className="text-center py-2">Renderizando página...</div>}
+                                        />
+                                      </Document>
+                                    </>
+                                  ) : pdfRenderMode === 'iframe' ? (
+                                    <>
+                                      <div className="text-center mb-2">Visualização alternativa do PDF</div>
+                                      <iframe 
+                                        src={previewUrls[currentFileIndex]}
+                                        className="w-full h-[400px]"
+                                        title="Visualização de PDF"
+                                        onLoad={() => {
+                                          console.log('PDF carregado via iframe');
+                                          // Verificar se o iframe carregou corretamente
+                                          try {
+                                            // Tentar acessar o conteúdo do iframe para confirmar carregamento
+                                            setTimeout(() => {
+                                              const iframeElement = document.querySelector('iframe');
+                                              if (iframeElement) {
+                                                console.log('iframe DOM disponível:', iframeElement.contentDocument ? 'Sim' : 'Não');
+                                              }
+                                            }, 1000);
+                                          } catch (error) {
+                                            console.warn('Não foi possível verificar o conteúdo do iframe:', error);
+                                          }
+                                        }}
+                                        onError={(event) => {
+                                          console.error('Erro ao carregar PDF via iframe:', {
+                                            event: event,
+                                            target: event.target,
+                                            currentTime: new Date().toISOString()
+                                          });
+                                          setError('Falha ao carregar o PDF no modo iframe. Tentando download direto...');
+                                          switchPdfRenderMode();
+                                        }}
+                                      />
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="text-center mb-2">Visualização de PDF não disponível</div>
+                                      <div className="text-center py-4">
+                                        <a href={previewUrls[currentFileIndex]} target="_blank" rel="noopener noreferrer" className="btn-primary">
+                                          Baixar PDF para visualizar
+                                        </a>
+                                        <p className="mt-2 text-sm text-gray-600">Ou tente carregar o arquivo em outro formato (JPG, PNG)</p>
+                                      </div>
+                                    </>
+                                  )}
+                                  {numPages && numPages > 1 && pdfRenderMode === 'react-pdf' && (
+                                    <div className="flex justify-between items-center mt-4">
+                                      <button 
+                                        onClick={() => setPageNumber(prev => Math.max(1, prev - 1))}
+                                        disabled={pageNumber <= 1}
+                                        className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                                        type="button"
+                                      >
+                                        ← Anterior
+                                      </button>
+                                      <span className="text-sm text-gray-600">
+                                        {pageNumber} de {numPages}
+                                      </span>
+                                      <button 
+                                        onClick={() => setPageNumber(prev => Math.min(numPages, prev + 1))}
+                                        disabled={pageNumber >= numPages}
+                                        className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                                        type="button"
+                                      >
+                                        Próxima →
+                                      </button>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Botão para alternar modo de visualização do PDF */}
+                                  {isPdf && previewUrls.length > 0 && (
+                                    <div className="text-center mt-3">
+                                      <button 
+                                        onClick={switchPdfRenderMode} 
+                                        className="text-sm text-blue-600 hover:text-blue-800"
+                                        type="button"
+                                      >
+                                        {pdfRenderMode === 'react-pdf' ? 'Alternar para visualização alternativa' : 
+                                         pdfRenderMode === 'iframe' ? 'Alternar para download direto' : 
+                                         'Retornar para visualização padrão'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-sm font-medium text-gray-600 mt-2">PDF com extração automática de texto</p>
+                              </div>
+                            ) : (
+                              <img 
+                                src={previewUrls[currentFileIndex]} 
+                                alt="Preview" 
+                                className="mx-auto h-40 object-contain rounded-lg border" 
+                              />
+                            )}
+                            <p className="mt-2 text-sm text-gray-600">
+                              Arquivo {currentFileIndex + 1} de {selectedFiles.length}: {selectedFile?.name}
+                            </p>
+                          </div>
+                          
+                          {/* Navegação entre arquivos */}
+                          {selectedFiles.length > 1 && (
+                            <div className="flex justify-center items-center space-x-4 mb-4">
+                              <button
+                                type="button"
+                                onClick={() => navigateToFile(Math.max(0, currentFileIndex - 1))}
+                                disabled={currentFileIndex === 0}
+                                className="px-3 py-2 bg-gray-200 text-gray-700 rounded disabled:opacity-50 hover:bg-gray-300"
+                              >
+                                ← Anterior
+                              </button>
+                              <span className="text-sm text-gray-600">
+                                {currentFileIndex + 1} de {selectedFiles.length}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => navigateToFile(Math.min(selectedFiles.length - 1, currentFileIndex + 1))}
+                                disabled={currentFileIndex === selectedFiles.length - 1}
+                                className="px-3 py-2 bg-gray-200 text-gray-700 rounded disabled:opacity-50 hover:bg-gray-300"
+                              >
+                                Próximo →
+                              </button>
+                            </div>
+                          )}
+                          
+                          <div className="flex justify-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Criar um input temporário para adicionar mais arquivos
+                                const tempInput = document.createElement('input');
+                                tempInput.type = 'file';
+                                tempInput.multiple = true;
+                                tempInput.accept = '.pdf,.jpg,.jpeg,.png';
+                                tempInput.onchange = (e) => {
+                                  const target = e.target as HTMLInputElement;
+                                  if (target.files && target.files.length > 0) {
+                                    const newFiles = Array.from(target.files);
+                                    processFiles(newFiles);
+                                  }
+                                };
+                                tempInput.click();
+                              }}
+                              className="btn-outline text-sm"
+                            >
+                              Adicionar Mais Arquivos
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedFiles([]);
+                                setPreviewUrls([]);
+                                setSelectedFile(null);
+                                setCurrentFileIndex(0);
+                                setSuccessMessage(null);
+                              }}
+                              className="btn-text text-sm text-red-600 hover:text-red-700"
+                            >
+                              Remover Todos
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ) : (
-                    <div className="text-center">
+                    <div className="text-center py-8">
                       <svg className="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
+                      <p className="mt-3 text-sm text-gray-600 font-medium">
+                        Faça upload dos resultados laboratoriais
+                      </p>
                       <p className="mt-1 text-sm text-gray-500">
-                        Arraste e solte um arquivo, ou
+                        Arraste e solte arquivos aqui, ou clique para selecionar
                       </p>
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="mt-2 btn-text"
+                        className="mt-4 btn-primary"
                       >
-                        Selecione um arquivo
+                        Selecionar Arquivos
                       </button>
-                      <p className="mt-1 text-xs text-gray-500">
-                        PDF, PNG ou JPG até 5MB (Preferível PDF para análise de texto mais precisa)
-                      </p>
+                      <div className="mt-4 text-xs text-gray-500 space-y-1">
+                        <p>• Formatos aceitos: PDF, PNG, JPG</p>
+                        <p>• Tamanho máximo: 5MB por arquivo</p>
+                        <p>• Múltiplos arquivos são suportados</p>
+                        <p>• PDFs oferecem melhor precisão na análise automática</p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -887,7 +1255,7 @@ const LabResultsPage: React.FC = () => {
                   {(analyzing || (!plan?.lab_results?.analyzed_data && analysisComplete)) && (
                     <LabAnalysisAnimation
                       analyzeResults={analyzeResults}
-                      fileUrl={previewUrl || plan?.lab_results?.file_url}
+                      fileUrl={previewUrls[currentFileIndex] || plan?.lab_results?.file_url}
                       isAnalyzing={analyzing}
                       onAnalysisComplete={handleAnalysisComplete}
                       isPdf={isPdf}
